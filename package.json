@@ -1,0 +1,23 @@
+{
+  "name": "zaradrop-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:customer": "npm run dev --workspace @zaradrop/customer",
+    "dev:rider": "npm run dev --workspace @zaradrop/rider",
+    "dev:vendor": "npm run dev --workspace @zaradrop/vendor",
+    "dev:ops": "npm run dev --workspace @zaradrop/ops",
+    "build": "npm run build --workspaces --if-present",
+    "build:customer": "npm run build --workspace @zaradrop/customer",
+    "build:rider": "npm run build --workspace @zaradrop/rider",
+    "build:vendor": "npm run build --workspace @zaradrop/vendor",
+    "build:ops": "npm run build --workspace @zaradrop/ops"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2"
+  }
+}

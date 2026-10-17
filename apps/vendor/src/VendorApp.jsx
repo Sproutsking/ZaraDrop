@@ -1,0 +1,696 @@
+import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
+import { EyeOff, Search, Clock, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, BarChart3, ArrowDownLeft, ArrowUpRight, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Store, ChefHat, UtensilsCrossed, Ban, Users, Lock, Eye, Radio, Pencil, Menu, KeyRound, Trash2 } from "lucide-react";
+import { createOwnedVendor, createVendorMenuItem, getOwnedVendor, listOrderMessages, listVendorOrders, sendOrderMessage, setMenuItemAvailability, setOwnedVendorAvailability, setVendorOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
+import { Timeline } from "@zaradrop/ui";
+import MenuManager from "./sections/menu/MenuManager.jsx";
+
+/* ═════════ DESIGN SYSTEM (shared by all four Dispatch apps) ═════════ */
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&display=swap');
+.dl,.dlp{--bg:#050506;--s1:#0d0d10;--s2:#15151a;--s3:#1f1f26;--bd:#26262e;--bh:#3c3c49;--tx:#f4f4f6;--mu:#a3a3b0;--ac:#8f63ff;--at:#b79bff;--acx:#ffffff;--ag:linear-gradient(180deg,#9a73ff 0%,#7d4fff 100%);--as:rgba(143,99,255,.12);--ab:rgba(143,99,255,.5);--dng:#f87171;--dgs:rgba(248,113,113,.12);--wrn:#fbbf24;--wns:rgba(251,191,36,.12);--inf:#60a5fa;--ins:rgba(96,165,250,.12);--bub:#17171c;--bdg:#ef4444;--ov:rgba(0,0,0,.7);color-scheme:dark}
+.lt{--bg:#f5f5f8;--s1:#ffffff;--s2:#eeeef3;--s3:#e0e0e8;--bd:#d8d8e2;--bh:#b3b3c3;--tx:#121216;--mu:#585866;--ac:#6d3df5;--at:#5a2bd8;--acx:#ffffff;--ag:linear-gradient(180deg,#7a4dff 0%,#6234ec 100%);--as:rgba(109,61,245,.09);--ab:rgba(90,43,216,.45);--dng:#c81e1e;--dgs:rgba(220,38,38,.09);--wrn:#a8480a;--wns:rgba(217,119,6,.13);--inf:#1d4ed8;--ins:rgba(29,78,216,.09);--bub:#ececf1;--bdg:#e11d48;--ov:rgba(18,18,22,.45);color-scheme:light}
+.dl{min-height:100vh;background:var(--bg);color:var(--tx);font:14px/1.5 'DM Sans',system-ui,sans-serif}.dlp{color:var(--tx);font:14px/1.5 'DM Sans',system-ui,sans-serif}
+:where(.dl,.dlp) *{box-sizing:border-box}:where(.dl,.dlp) button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;text-align:inherit}:where(.dl,.dlp) :is(h1,h2,h3,p){margin:0}:where(.dl,.dlp) input,:where(.dl,.dlp) select{font:inherit}:where(.dl,.dlp) svg{flex:none}
+.mu{color:var(--mu)}.ac{color:var(--at)}.mono{font-family:'JetBrains Mono',monospace}.xs{font-size:11px}.b{font-weight:700}.fl{flex:1;min-width:0}.tr{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.serif{font-family:Fraunces,Georgia,serif}
+.row{display:flex;align-items:center;gap:10px}.col{display:flex;flex-direction:column;gap:14px}
+.lb{font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--mu)}
+/* buttons: always visible border + fill, hover only changes colour (no glow) */
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:42px;padding:0 18px;border-radius:999px;border:1px solid var(--bh);background:var(--s2);color:var(--tx);font-weight:600;font-size:13px;white-space:nowrap;transition:background .15s,border-color .15s,color .15s,transform .1s}
+.bt:hover:not(:disabled){border-color:var(--ac);color:var(--at)}.bt:active:not(:disabled){transform:scale(.98)}
+.bt.p{background:var(--ag);border-color:var(--ac);color:var(--acx)}.bt.p:hover:not(:disabled){filter:brightness(1.07);color:var(--acx)}
+.bt.o{background:transparent;border-color:var(--ab);color:var(--at)}.bt.o:hover:not(:disabled){background:var(--as)}
+.bt.r{background:var(--dgs);border-color:transparent;color:var(--dng)}.bt.r:hover:not(:disabled){border-color:var(--dng);color:var(--dng)}
+.bt.s{height:34px;padding:0 15px;font-size:12.5px}.bt.w{width:auto;min-width:148px;padding:0 26px;align-self:flex-start}.bt.xl{height:52px;padding:0 34px;font-size:15px;font-weight:800}.sh .bt.w,.fs .bt.w,.fb .bt.w{align-self:center}.bt:disabled{opacity:.45;cursor:not-allowed}
+.ib{position:relative;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--bd);background:var(--s2);color:var(--tx);transition:background .15s,border-color .15s,color .15s}.ib:hover:not(:disabled){border-color:var(--ac);color:var(--at)}.ib:disabled{opacity:.45;cursor:not-allowed}
+.ib.g{background:var(--ag);color:var(--acx);border-color:var(--ac)}.ib.g:hover:not(:disabled){color:var(--acx);filter:brightness(1.07)}
+/* count badge: hangs off the top-right corner of its icon */
+.bdg{position:absolute;top:-6px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--bdg);color:#fff;font-size:10.5px;font-weight:800;line-height:1;display:grid;place-items:center;border:2px solid var(--bg);pointer-events:none}
+.ib .bdg{top:-5px;right:-5px}.ct2 .bdg,.ni .bdg,.nv .bdg{border-color:var(--s1)}.ni .bdg{top:-8px;right:-11px}
+.ch{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid var(--bd);color:var(--mu);white-space:nowrap}.ch.g{color:var(--at);border-color:var(--ab);background:var(--as)}.ch.o{color:var(--wrn);background:var(--wns);border-color:transparent}.ch.r{color:var(--dng);background:var(--dgs);border-color:transparent}.ch.bl{color:var(--inf);background:var(--ins);border-color:transparent}
+.av{width:var(--s,40px);height:var(--s,40px);border-radius:50%;display:grid;place-items:center;font-weight:800;color:#0c0818;font-size:calc(var(--s,40px)*.4);background:linear-gradient(135deg,var(--g1),var(--g2));flex:none;position:relative}.av i{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--ag);border:2px solid var(--s1)}
+.cd{position:relative;border:1px solid var(--bd);border-radius:20px;background:var(--s1);padding:16px;animation:dlfd .35s backwards;transition:border-color .2s}.cd.hl{border-color:var(--ab)}.cd.hv:hover{border-color:var(--ab)}
+.em{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;font-size:28px;background:var(--s2);border:1px solid var(--bd);flex:none}.em.sm{width:44px;height:44px;font-size:22px;border-radius:14px}
+.st{display:flex;gap:4px;margin:12px 0 6px}.st i{flex:1;height:5px;border-radius:3px;background:var(--s3)}.st i.d,.st i.n{background:var(--ag)}.st i.n{animation:dlbl 1.2s infinite}
+.kp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.kp>div{border:1px solid var(--bd);border-radius:14px;padding:12px 8px;text-align:center;background:var(--s1);min-width:0}.kp b{display:block;font-size:clamp(14px,4.2vw,20px);letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pb{height:8px;border-radius:5px;background:var(--s3);overflow:hidden}.pb i{display:block;height:100%;border-radius:5px;background:var(--ag);transition:width .5s}
+.rk{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--bd)}.rk:first-child{border-top:0}.lb+.rk{border-top:0}
+.rk.me{background:var(--as);border-radius:12px;padding:11px 10px;margin:2px -10px;border-top:0}
+.map{position:relative;height:170px;border-radius:18px;overflow:hidden;border:1px solid var(--bd);background:var(--s2) linear-gradient(var(--bd) 1px,transparent 1px),linear-gradient(90deg,var(--bd) 1px,transparent 1px);background-size:100% 100%,26px 26px,26px 26px}.map svg{position:absolute;inset:0;width:100%;height:100%}
+.pin{position:absolute;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--s1);border:2px solid var(--ac);transform:translate(-50%,-50%);transition:left 1.5s,top 1.5s}
+/* shell */
+.lay{display:flex;justify-content:center;min-height:100vh;width:100%;max-width:1840px;margin:0 auto;border-right:1px solid var(--bd)}
+.nv{position:sticky;top:0;height:100vh;height:100dvh;width:88px;flex:none;border-right:1px solid var(--bd);padding:16px 10px;display:flex;flex-direction:column;gap:6px;background:var(--s1);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}.nv::-webkit-scrollbar{display:none}.nv>*{flex:none}.ni.mr{display:none}
+.brand{display:flex;align-items:center;gap:10px;margin:0 auto 14px}.brand div{display:none}.brand b{display:block;font:700 18px Fraunces,serif;letter-spacing:-.01em}
+.lg{width:40px;height:44px;display:grid;place-items:center;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);background:var(--ag);color:var(--acx);font-weight:800;flex:none}
+.ni{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;border-radius:16px;color:var(--mu);font-size:10.5px;font-weight:600;transition:color .15s}
+.ni .ic{display:grid;place-items:center;width:46px;height:32px;border-radius:12px;transition:background .15s}.ni .iw{position:relative;display:grid;place-items:center}
+.ni:hover{color:var(--tx)}.ni:hover .ic{background:var(--s2)}.ni.on{color:var(--at)}.ni.on .ic{background:var(--as)}.ni.lk{opacity:.45}
+.nvf{margin-top:auto;display:none;padding:12px 14px;border:1px solid var(--bd);border-radius:18px;background:var(--bg)}
+.mn{--px:14px;flex:1;min-width:0;max-width:calc(var(--mw,780px) + 300px);width:100%;padding:0 var(--px) calc(100px + env(safe-area-inset-bottom))}
+.hdr{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;margin:0 calc(var(--px)*-1) 16px;padding:calc(10px + env(safe-area-inset-top)) var(--px) 10px;background:var(--bg);border-bottom:1px solid var(--bd)}
+.pf{display:flex;align-items:center;gap:10px;min-width:0;border-radius:999px;padding:2px 12px 2px 2px;transition:background .15s}.pf:hover{background:var(--s2)}.pf .t{min-width:0;line-height:1.25}.pf .t b{display:block;font-size:14px}.pf .t span{font-size:11.5px;color:var(--mu)}
+.sd{display:none;width:300px;flex:none;position:sticky;top:0;height:100vh;overflow-y:auto;padding:22px 20px 40px;scrollbar-width:none}
+.sd .cd{padding:14px}.sd h3{font-size:15px}
+.bn{display:none}
+@media(min-width:700px){.mn{--px:22px;padding-bottom:60px;border-right:1px solid var(--bd)}}
+/* stage 1 · tablet 700-1099: icon over name, rail 88px, extras behind More */
+@media(min-width:700px) and (max-width:1099px){.nv .ni.xt{display:none}.nv .ni.mr{display:flex}.ni{padding:7px 0}.ni .lt{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}}
+/* stage 2 · laptop 1100+: icon beside name, full list scrolls */
+@media(min-width:1100px){.nv{width:208px;padding:18px 12px}.brand{margin:0 0 14px 4px}.brand div{display:block}.ni{flex-direction:row;gap:11px;padding:5px 10px 5px 5px;font-size:13.5px}.ni .ic{width:38px;height:34px}.ni.on{background:var(--as)}.nv .ni.on .ic{background:transparent;border-color:transparent}.nv .ni.on:before{content:"";position:absolute;left:-12px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--ag)}.mn{--px:24px}}
+/* stage 3 · desktop 1280+: footer card and roomier gutters */
+@media(min-width:1280px){.nv{width:236px;padding:20px 14px}.nv .ni.on:before{left:-14px}.nvf{display:block}.mn{--px:28px}}
+/* trending panel stays from 1000px as before; it grows with the screen */
+@media(min-width:1000px){.sd{display:flex;flex-direction:column;gap:10px;width:260px;padding:20px 16px 40px}}@media(min-width:1100px){.sd{width:284px;padding:22px 18px 40px}}@media(min-width:1280px){.sd{width:340px;padding:22px 22px 40px}}
+@media(max-width:699px){.nv{display:none}.cd{border-radius:18px}
+.bn{position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;gap:4px;padding:10px 8px calc(10px + env(safe-area-inset-bottom));background:var(--s1);border:1px solid var(--bd);border-bottom:0;border-radius:24px 24px 0 0}
+.bn .ni{flex:1;height:56px;padding:0;justify-content:center;gap:3px;border-radius:16px}.bn .ni .ic{width:56px;height:30px;border-radius:15px}
+.bn .ni.on:before{content:"";position:absolute;top:-11px;left:50%;width:24px;height:3px;border-radius:0 0 4px 4px;background:var(--ag);transform:translateX(-50%)}.bn .ni.on .lt{font-weight:800}}
+.ni .ic{border:1px solid transparent}.ni.on .ic{border-color:var(--ab);background:linear-gradient(180deg,var(--as),transparent 150%)}
+html,body{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}
+.dl *,.dlp *{scrollbar-width:none;-ms-overflow-style:none}.dl *::-webkit-scrollbar,.dlp *::-webkit-scrollbar{width:0;height:0;display:none}
+.sw,.sw *{transition:background-color .45s ease,border-color .45s ease,color .45s ease,fill .45s ease,stroke .45s ease!important}
+.sgn{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:6px}.so{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 26px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dng) 50%,transparent);background:transparent;color:var(--dng);font-weight:700;font-size:13.5px;transition:background-color .15s,border-color .15s}.so:hover{background:var(--dgs);border-color:var(--dng)}
+.pa{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--bd);border-radius:18px;background:var(--s1)}.pa.def{border-color:var(--ab)}
+/* dropdown */
+.dr{position:relative;display:inline-block}.drb{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 12px 0 14px;border-radius:999px;border:1px solid var(--bd);background:var(--s1);font-size:13px;white-space:nowrap;transition:border-color .15s,background .15s}.drb:hover{border-color:var(--bh)}.drb.on{border-color:var(--ab);background:var(--as)}.drb .mu{font-size:12px}.drb b{font-weight:700}.drb svg:last-child{color:var(--mu);transition:transform .15s}.drb.on svg:last-child{transform:rotate(180deg)}
+.drm{position:absolute;top:calc(100% + 6px);left:0;z-index:70;min-width:max(100%,200px);max-height:320px;overflow-y:auto;padding:6px;border:1px solid var(--bh);border-radius:16px;background:var(--s1);animation:dlfd .12s}.dr.r .drm{left:auto;right:0}
+.drm button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border-radius:11px;font-weight:600;font-size:13px}.drm button:hover{background:var(--s2)}.drm button.on{color:var(--at);background:var(--as)}.drm .lb{padding:8px 12px 4px}
+.dbg{position:fixed;inset:0;z-index:65}
+.acts{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}.acts .bt{min-width:124px}
+.tbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.tbar .fl{min-width:0}
+/* wallet */
+.wlt{position:relative;overflow:hidden;isolation:isolate;border:1px solid var(--ab);border-radius:24px;padding:20px 20px 16px;background:radial-gradient(120% 100% at 100% 0%,var(--as),transparent 58%),linear-gradient(158deg,var(--s2) 0%,var(--s1) 62%);animation:dlfd .35s backwards}
+.wlt::before{content:"";position:absolute;inset:0;z-index:-1;background:repeating-radial-gradient(circle at 100% 0,transparent 0 17px,var(--as) 17px 18px);-webkit-mask-image:radial-gradient(90% 90% at 100% 0,#000,transparent 72%);mask-image:radial-gradient(90% 90% at 100% 0,#000,transparent 72%);opacity:.9}
+.wlt::after{content:"";position:absolute;inset:5px;z-index:-1;border:1px solid var(--bd);border-radius:19px;opacity:.55;pointer-events:none}
+.wlt .wh{display:flex;align-items:center;gap:10px}.wlt .wchip{flex:none;width:36px;height:26px;border-radius:7px;border:1px solid var(--ab);background:linear-gradient(90deg,transparent 31%,var(--ab) 31% 33%,transparent 33% 66%,var(--ab) 66% 68%,transparent 68%),linear-gradient(0deg,transparent 45%,var(--ab) 45% 55%,transparent 55%),var(--as)}
+.wlt .wl{flex:1;min-width:0;font:600 10.5px/1.2 'DM Mono',ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wlt .wey{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--bd);background:var(--s1);color:var(--mu);display:grid;place-items:center;cursor:pointer;transition:border-color .2s,color .2s}.wlt .wey:hover{border-color:var(--bh);color:var(--tx)}
+.wlt .wb{margin:16px 0 2px;display:flex;align-items:baseline;gap:6px;min-width:0}.wlt .wb b{font:500 clamp(34px,9.5vw,48px)/1.05 'Fraunces',Georgia,serif;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}.wlt .wb i{font:500 clamp(18px,5vw,24px)/1 'Fraunces',Georgia,serif;font-style:normal;color:var(--at)}
+.wlt .wm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:24px}.wlt .wsp{display:block;width:100%;height:38px;margin:12px 0 4px}
+.wlt .wid{font:12px/1 'DM Mono',ui-monospace,monospace;letter-spacing:.12em;color:var(--mu)}
+.wlt .wact{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.wlt .wft{display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--bd);color:var(--mu);font-size:12px}
+.wlt.ok{border-color:var(--bd)}
+.txg{display:flex;flex-direction:column}.txg .lb{margin:14px 0 2px}.txg .lb:first-child{margin-top:4px}
+.tx{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--bd);min-width:0}.tx:last-child{border-bottom:0}.tx .em{flex:none}
+.tx .ta{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:700}.tx .ta.cr{color:var(--at)}
+.wlk{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}.wlk>div{border:1px solid var(--bd);border-radius:14px;padding:12px;background:var(--s1);min-width:0}.wlk b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
+/* compact rhythm: tighter spacing, same detail */
+.col{gap:10px}.hdr{margin-bottom:12px}.cd{padding:14px}.sd .cd{padding:12px}.sd{gap:10px}
+.rk{padding:8px 0;gap:10px}.em.sm{width:38px;height:38px;font-size:19px;border-radius:12px}
+.kp{gap:6px}.kp>div{padding:9px 6px;border-radius:12px}.ct2{padding:8px 10px;border-radius:14px}.setrow{padding:12px 14px;border-radius:16px}
+.cd>.lb+*{margin-top:6px}.chip,.ch{padding:2px 9px}
+.wlt{padding:14px 16px 12px;border-radius:22px}.wlt::after{inset:4px;border-radius:18px}
+.wlt .wb{margin:10px 0 0}.wlt .wb b{font-size:clamp(32px,9vw,42px)}.wlt .wm{min-height:22px;margin-top:4px}.wlt .wsp{height:30px;margin:8px 0 2px}
+.wlt .wact{margin-top:10px}.wlt .wft{margin-top:10px;padding-top:9px;font-size:11.5px}.wlt .wey{width:30px;height:30px}.wlt .wchip{width:32px;height:23px}
+.txg .lb{margin:10px 0 0;padding:0 0 3px;font-size:10px}.tx{padding:7px 0;gap:10px}.tx .em{width:32px!important;height:32px!important;border-radius:10px}.tx .em svg{width:15px;height:15px}
+.tx .b{font-size:13.5px;line-height:1.3}.tx .xs{font-size:11.5px;line-height:1.3}.tx .ta{font-size:13.5px}
+.cd>.txg{margin-top:2px}
+.sg2{display:inline-flex;padding:3px;border:1px solid var(--bd);border-radius:999px;background:var(--s1);align-self:flex-start}.sg2 button{height:32px;padding:0 14px;border-radius:999px;color:var(--mu);font-weight:600;font-size:13px;transition:background .2s,color .2s}.sg2 button.on{background:var(--as);color:var(--at);box-shadow:inset 0 0 0 1px var(--ab)}
+.pf .t span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px}.pf .t b{max-width:210px}@media(max-width:520px){.tsrch{flex:1 1 100%!important}}
+/* overlays: everything renders through a portal so nothing can trap it */
+.bd{position:fixed;inset:0;z-index:333;background:var(--ov);animation:dlfd .2s}
+.sh{position:fixed;z-index:336;left:0;right:0;margin:0 auto;bottom:0;width:min(520px,100%);display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-bottom:0;border-radius:24px 24px 0 0;animation:dlup .28s cubic-bezier(.2,.9,.3,1);overflow:hidden;max-height:88vh}
+.sh .hd{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--bd)}.sh .bdy{flex:1;overflow-y:auto;padding:14px 16px calc(22px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;scrollbar-width:none}
+.fs{position:fixed;inset:0;z-index:330;height:100vh;height:100dvh;display:flex;flex-direction:column;background:var(--bg);animation:dlsl .26s cubic-bezier(.2,.9,.3,1)}.fs.up{z-index:340}.fs.top{z-index:350}
+.fs>.hd{flex:none;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) max(14px,calc((100% - 760px)/2)) 10px;border-bottom:1px solid var(--bd);background:var(--bg)}
+.fs>.bdy{flex:1;overflow-y:auto;padding:16px max(14px,calc((100% - 760px)/2));display:flex;flex-direction:column;gap:12px;scrollbar-width:none;overscroll-behavior:contain}
+.fs>.pt,.fs>.qr{flex:none;padding-inline:max(12px,calc((100% - 760px)/2))}.fs>.cb{flex:none;padding-inline:max(12px,calc((100% - 760px)/2));border-top:1px solid var(--bd)}.fs>.ro{flex:none;margin:12px max(12px,calc((100% - 760px)/2)) calc(12px + env(safe-area-inset-bottom))}
+.fb{flex:none;padding:12px max(14px,calc((100% - 760px)/2)) calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--bd);background:var(--bg)}
+@media(min-width:700px){.fs.dlg{inset:0;margin:auto;width:min(640px,92vw);height:min(780px,90vh);border-radius:22px;border:1px solid var(--bd);overflow:hidden;animation:dlfd .2s}.fs.dlg>.hd{padding-inline:20px}.fs.dlg>.bdy{padding-inline:20px}.fs.dlg .fb{padding-inline:20px}}
+.pt{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--bd);overflow-x:auto;scrollbar-width:none}.pt button{display:flex;align-items:center;gap:7px;height:34px;padding:0 12px 0 5px;border-radius:999px;border:1px solid var(--bd);font-size:12.5px;font-weight:600;color:var(--mu);white-space:nowrap}.pt button.on{color:var(--at);border-color:var(--ac);background:var(--as)}
+.mg{max-width:80%;padding:9px 13px;border-radius:18px 18px 18px 6px;background:var(--bub);overflow-wrap:anywhere;animation:dlpop .2s}.mg.me{align-self:flex-end;border-radius:18px 18px 6px 18px;background:var(--ag);color:var(--acx)}.mg small{display:block;font-size:10px;opacity:.6;margin-top:2px}
+.sy{align-self:center;font-size:11px;color:var(--mu);padding:3px 10px;border:1px dashed var(--bh);border-radius:99px;text-align:center}
+.ty{align-self:flex-start;display:flex;gap:4px;padding:12px 14px;border-radius:18px;background:var(--bub)}.ty i{width:6px;height:6px;border-radius:50%;background:var(--mu);animation:dlbl 1s infinite}.ty i:nth-child(2){animation-delay:.15s}.ty i:nth-child(3){animation-delay:.3s}
+.qr{display:flex;gap:8px;overflow-x:auto;padding:10px 12px 12px;scrollbar-width:none}.qr button{flex:none;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--ab);background:var(--as);color:var(--at);font-size:12.5px;font-weight:600}
+.cb{display:flex;align-items:center;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+.cb input,.in{min-width:0;background:var(--s1);border:1px solid var(--bd);color:var(--tx);outline:none}.cb input{flex:1;height:44px;border-radius:999px;padding:0 16px}.in{width:100%;height:46px;border-radius:14px;padding:0 14px}.cb input:focus,.in:focus{border-color:var(--ac)}select.in{appearance:none}
+.cl{position:fixed;inset:0;z-index:400;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(60px + env(safe-area-inset-top)) 24px calc(40px + env(safe-area-inset-bottom));background:var(--bg);animation:dlfd .25s}
+.rg{position:relative;display:grid;place-items:center;margin:20px 0 14px}.rg:before,.rg:after{content:"";position:absolute;inset:-14px;border-radius:50%;border:1px solid var(--ac);animation:dlpl 2s infinite}.rg:after{animation-delay:1s}.cl.on .rg:before,.cl.on .rg:after{animation:none;opacity:.3}
+.ct{display:flex;gap:18px;align-items:center}.ct button{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:var(--s2);border:1px solid var(--bh);transition:.15s}.ct button.on{background:var(--tx);color:var(--bg)}.ct button.end{width:70px;height:70px;background:#e11d48;border-color:#e11d48;color:#fff}.ct button.ok{width:70px;height:70px;background:var(--ag);border-color:var(--ac);color:var(--acx)}
+.pl{display:flex;align-items:center;gap:8px;padding:12px 14px;border:1px solid var(--ab);border-radius:14px;background:var(--as);font-size:12px;color:var(--tx)}.pl.w{border-color:transparent;background:var(--wns);color:var(--wrn)}
+.ct2{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--bd);border-radius:16px;background:var(--s1);width:100%}.ct2.on{border-color:var(--ac);background:var(--as)}
+.toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:500;background:var(--tx);color:var(--bg);padding:10px 18px;border-radius:99px;font-weight:600;font-size:13px;white-space:nowrap;animation:dlfd .2s}
+@media(max-width:699px){.sh{width:100%}.toast{bottom:calc(92px + env(safe-area-inset-bottom))}}
+.tgl{position:relative;width:52px;height:30px;border-radius:99px;background:var(--s3);border:1px solid var(--bh);flex:none;transition:background .2s,border-color .2s}.tgl:after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--s1);border:1px solid var(--bh);transition:left .2s}.tgl.on{background:var(--ag);border-color:var(--ac)}.tgl.on:after{left:25px;border-color:var(--ac)}.tgl.big{width:60px;height:34px}.tgl.big:after{width:26px;height:26px}.tgl.big.on:after{left:29px}
+.seg{display:flex;gap:4px;padding:4px;border:1px solid var(--bd);border-radius:999px;background:var(--s1)}.seg button{flex:1;height:34px;border-radius:999px;font-size:12.5px;font-weight:700;color:var(--mu);text-align:center;transition:.2s;display:flex;align-items:center;justify-content:center;gap:6px}.seg button.on{background:var(--ag);color:var(--acx)}
+.pn{display:flex;align-items:center;gap:8px}.pn .ib{width:36px;height:36px}
+.dt{display:flex;gap:8px}.dt label{flex:1;display:flex;flex-direction:column;gap:4px}.dt input{height:42px;background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:0 10px;color:var(--tx);outline:none}.dt input:focus{border-color:var(--ac)}
+.chart{display:flex;align-items:flex-end;gap:3px;height:150px;margin-top:14px}.chart button{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px}.chart i{display:block;width:100%;border-radius:6px 6px 2px 2px;background:var(--ab);opacity:.6;min-height:3px;transition:height .4s}.chart button.top i{background:var(--ag);opacity:1}.chart button.sel i{background:var(--tx);opacity:1}.chart span{font-size:9.5px;color:var(--mu);height:12px;white-space:nowrap;overflow:visible}
+.stp{display:flex;align-items:center;gap:8px}.stp button{width:32px;height:32px;border-radius:50%;border:1px solid var(--bh);display:grid;place-items:center;background:var(--s2)}.stp button.p{background:var(--ag);color:var(--acx);border-color:var(--ac)}
+.pin4{display:flex;gap:8px;justify-content:center;margin:10px 0}.pin4 input{width:54px;height:62px;text-align:center;font-size:26px;font-weight:800;background:var(--s1);border:1px solid var(--bd);border-radius:14px;color:var(--tx);outline:none}.pin4 input:focus{border-color:var(--ac)}
+.opt{display:flex;flex-direction:column;gap:8px}.opt button{display:flex;align-items:center;gap:10px;padding:13px 14px;border-radius:14px;border:1px solid var(--bd);font-weight:600;background:var(--s1)}.opt button.on{border-color:var(--ac);color:var(--at);background:var(--as)}
+.setrow{display:flex;align-items:center;gap:12px;width:100%;padding:14px;border:1px solid var(--bd);border-radius:18px;background:var(--s1);font-weight:700;transition:border-color .15s}.setrow:hover{border-color:var(--ab)}
+.sw-r{display:flex;align-items:center;gap:10px;padding:8px 0}
+@keyframes dlfd{from{opacity:0}}@keyframes dlup{from{transform:translateY(100%)}}@keyframes dlsl{from{opacity:0;transform:translateY(24px)}}@keyframes dlpop{from{opacity:0;transform:translateY(6px) scale(.97)}}/* notifications: full height on phones, taller and wider sheet on tablets, right drawer (30%) on desktop */
+@keyframes dlsr{from{transform:translateX(100%)}}
+@media(max-width:699px){.sh.nt{top:0;width:100%;max-height:none;height:100vh;height:100dvh;border:0;border-radius:0}.sh.nt .hd{padding-top:calc(14px + env(safe-area-inset-top))}}
+@media(min-width:700px) and (max-width:1023px){.sh.nt{width:min(700px,92vw);max-height:none;height:min(88dvh,900px)}}
+@media(min-width:1024px){.sh.nt{left:auto;right:0;top:0;bottom:0;margin:0;width:30vw;min-width:380px;max-width:560px;max-height:none;height:100dvh;border:0;border-left:1px solid var(--bd);border-radius:0;animation:dlsr .3s cubic-bezier(.2,.9,.3,1)}}
+/* messages on desktop: conversation list left, chat (or the brand empty state) right */
+.ct2.on{border-color:var(--ab);background:var(--as)}.lg.big{width:72px;height:80px;font-size:30px}
+.ms{display:flex;align-items:center;gap:8px;margin:10px 12px 0;height:40px;padding:0 14px;border:1px solid var(--bd);border-radius:999px;background:var(--s1)}.ms input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--tx)}
+@media(min-width:1000px){
+.fs.msg{inset:0;margin:auto;width:min(1120px,94vw);height:min(780px,90vh);flex-direction:row;border-radius:22px;border:1px solid var(--bd);overflow:hidden;animation:dlfd .2s;background:var(--bg)}
+.fs.msg .ml{width:340px;flex:none;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bd);background:var(--s1)}
+.fs.msg .th{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+.th.emp{align-items:center;justify-content:center;gap:10px;padding:24px;background:radial-gradient(60% 50% at 50% 42%,var(--as),transparent 70%),var(--bg)!important}
+.th>.hd,.ml>.hd{flex:none;display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--bd);background:var(--bg)}.ml>.hd{background:var(--s1)}.th>.hd .fl{min-width:0}
+.th>.bdy,.ml>.bdy{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none;overscroll-behavior:contain}.ml>.bdy{padding:10px 12px 16px;gap:8px}
+.th>.pt,.th>.qr{flex:none;padding-inline:16px}.th>.cb{flex:none;padding-inline:16px;border-top:1px solid var(--bd)}.th>.ro{flex:none;margin:12px 16px}
+.th .mg{max-width:68%}
+.fs.top.tdlg{inset:0;margin:auto;width:min(760px,92vw);height:min(800px,90vh);border-radius:22px;border:1px solid var(--bd);overflow:hidden;animation:dlfd .2s}}
+@keyframes dlbl{50%{opacity:.3}}@keyframes dlpl{from{opacity:.7;transform:scale(.9)}to{opacity:0;transform:scale(1.5)}}
+@media(prefers-reduced-motion:reduce){.dl *,.dlp *{animation:none!important;transition:none!important}}
+`;
+const cn = (...a) => a.filter(Boolean).join(" ");
+const ThemeCtx = createContext("");
+function useThemeState() {
+  const [theme, setT] = useState("dark"), [sys, setSys] = useState(false), [sw, setSw] = useState(false);
+  useEffect(() => { const m = window.matchMedia("(prefers-color-scheme: light)"); setSys(m.matches); const f = (e) => setSys(e.matches); m.addEventListener && m.addEventListener("change", f); return () => m.removeEventListener && m.removeEventListener("change", f); }, []);
+  const light = theme === "light" || (theme === "auto" && sys);
+  const setTheme = (v) => { if (v === theme) return; setSw(true); setT(v); setTimeout(() => setSw(false), 600); };
+  useEffect(() => { try { const bg = light ? "#f5f5f8" : "#050506", h = document.documentElement; h.style.transition = "background-color .45s ease"; h.style.backgroundColor = bg; document.body.style.backgroundColor = bg; h.style.colorScheme = light ? "light" : "dark"; } catch (e) { /* ignore */ } }, [light]);
+  return { theme, setTheme, cls: cn(light && "lt", sw && "sw") };
+}
+function Portal({ children }) { const c = useContext(ThemeCtx); return <div className={cn("dlp", c)}>{children}</div>; }
+const STK = [];
+let LOCK = 0, PREV = "";
+function useModal(onClose) {
+  useEffect(() => { const id = {}; STK.push(id); const k = (e) => e.key === "Escape" && STK[STK.length - 1] === id && onClose(); document.addEventListener("keydown", k); if (LOCK++ === 0) { PREV = document.body.style.overflow; document.body.style.overflow = "hidden"; } return () => { document.removeEventListener("keydown", k); if (--LOCK <= 0) { LOCK = 0; document.body.style.overflow = PREV; } STK.splice(STK.indexOf(id), 1); }; }, []); // eslint-disable-line
+}
+function useToast() { const [t, s] = useState(""); useEffect(() => { if (!t) return; const x = setTimeout(() => s(""), 2200); return () => clearTimeout(x); }, [t]); return [t, s]; }
+const Toast = ({ t }) => (t ? <Portal><div className="toast" role="status">{t}</div></Portal> : null);
+function Av({ id, s = 40, on }) { const p = PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1] }}>{p.n[0]}{on && <i />}</span>; }
+const Tgl = ({ on, set, label, big }) => <button className={cn("tgl", big && "big", on && "on")} role="switch" aria-checked={!!on} aria-label={label} onClick={set} />;
+const Rw = ({ t, d, children }) => <div className="rk"><div className="fl"><div className="b">{t}</div>{d && <div className="xs mu">{d}</div>}</div>{children}</div>;
+function ThemeSwitch({ th }) { return <div className="seg" role="radiogroup" aria-label="Theme">{[["dark", "Dark", Moon], ["light", "Light", Sun], ["auto", "Auto", Monitor]].map(([k, l, I]) => <button key={k} role="radio" aria-checked={th.theme === k} className={th.theme === k ? "on" : ""} onClick={() => th.setTheme(k)}><I size={14} />{l}</button>)}</div>; }
+const SW = ({ title, children, act }) => <div className="cd"><div className="row" style={{ marginBottom: 8 }}><span className="lb fl">{title}</span>{act}</div>{children}</div>;
+
+/* ═════════ Call · Chat · Inbox ═════════ */
+function Call({ peer, incoming, onEnd, onChat, note }) {
+  useModal(() => {});
+  const [t, setT] = useState(incoming ? -2 : -1), [mute, setMute] = useState(false), [spk, setSpk] = useState(false);
+  useEffect(() => { if (t !== -1) return; const x = setTimeout(() => setT(0), 1800); return () => clearTimeout(x); }, [t]);
+  useEffect(() => { if (t < 0) return; const i = setInterval(() => setT((v) => v + 1), 1000); return () => clearInterval(i); }, [t < 0]); // eslint-disable-line
+  const live = t >= 0, mm = String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0");
+  return <Portal><div className={cn("cl", live && "on")} role="dialog" aria-label={"Call with " + PPL[peer].n}>
+    <div style={{ textAlign: "center" }}><div className="lb">{live ? "In-app call" : t === -2 ? "Incoming in-app call" : "Calling…"}</div><div className="rg"><Av id={peer} s={108} /></div>
+      <h2 style={{ fontSize: 24 }}>{PPL[peer].n}</h2><div className={cn("mono", live ? "ac" : "mu")} style={{ marginTop: 4 }}>{live ? mm : PPL[peer].r + (t === -2 ? " · calling you" : " · ringing")}</div></div>
+    <div className="col" style={{ width: "min(360px,100%)", alignItems: "center", gap: 28 }}>
+      <div className="pl"><ShieldCheck size={16} className="ac" />{note || "Free in-app call. No airtime used and phone numbers stay private."}</div>
+      {t === -2 ? <div className="ct"><button className="end" aria-label="Decline" onClick={() => onEnd(0)}><PhoneOff size={26} /></button><button className="ok" aria-label="Accept" onClick={() => setT(0)}><Phone size={26} /></button></div>
+        : <div className="ct"><button className={mute ? "on" : ""} aria-label="Mute" onClick={() => setMute(!mute)}>{mute ? <MicOff size={22} /> : <Mic size={22} />}</button><button className="end" aria-label="End call" onClick={() => onEnd(live ? t : 0)}><PhoneOff size={26} /></button><button className={spk ? "on" : ""} aria-label="Speaker" onClick={() => setSpk(!spk)}><Volume2 size={22} /></button></div>}
+      {t !== -2 && <button className="bt s" onClick={onChat}><MessageCircle size={14} />Switch to chat</button>}</div></div></Portal>;
+}
+/* Thread: always a full-screen layer above everything (nav included), same as a call. */
+function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true, canCall = true, onSend, joinable, inline, onEsc }) {
+  useModal(inline ? (onEsc || (() => {})) : onClose);
+  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, (orderId ? [] : SEED[p] || []).map((x) => ({ me: 0, x, t: "2m" }))]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
+  useEffect(() => { setCur(start); }, [start]);
+  useEffect(() => {
+    if (!orderId || !supabase) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const [messages, { data: { user } }] = await Promise.all([listOrderMessages(orderId), supabase.auth.getUser()]);
+        if (!active || !user) return;
+        setLog({ [cur]: messages.map((message) => ({ me: message.sender_id === user.id, x: message.body, t: new Date(message.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) })) });
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Could not load order messages.");
+      }
+    };
+    const channel = subscribeToOrderMessages(orderId, () => void refresh());
+    void refresh();
+    return () => { active = false; void supabase.removeChannel(channel); };
+  }, [orderId, cur]); // eslint-disable-line
+  useEffect(() => { end.current && end.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [log, ty, cur]);
+  const send = async (x) => {
+    x = x.trim(); if (!x || !canWrite) return; setV(""); setError("");
+    if (orderId) {
+      try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
+      return;
+    }
+    setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { me: 1, x, t: "now" }] })); onSend && onSend(cur); setTy(true); const w = cur; setTimeout(() => { setTy(false); setLog((l) => ({ ...l, [w]: [...(l[w] || []), { me: 0, x: "Got it 👍", t: "now" }] })); }, 1500);
+  };
+  const join = () => { setJoined(true); setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { sys: 1, x: "Support joined this conversation" }] })); onSend && onSend(cur, "join"); };
+  const body = <>
+    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r} · online{canWrite ? " · replies instantly" : " · read-only"}</div></div>
+      <button className="ib g" aria-label="Call" disabled={!canCall} onClick={() => onCall(cur)}>{canCall ? <Phone size={18} /> : <Lock size={15} />}</button>{!inline && <button className="ib" aria-label="Close chat" onClick={onClose}><X size={18} /></button>}</div>
+    {!inline && peers.length > 1 && <div className="pt">{peers.map((p) => <button key={p} className={cur === p ? "on" : ""} onClick={() => setCur(p)}><Av id={p} s={24} />{PPL[p].r}</button>)}</div>}
+    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canWrite ? "free, no airtime" : "read-only for your role"}</div>
+      {(log[cur] || []).map((m, i) => m.sys ? <div key={i} className="sy">{m.x}</div> : <div key={i} className={cn("mg", m.me && "me")}>{m.x}<small>{m.t}{m.me ? " · ✓✓" : ""}</small></div>)}{ty && <div className="ty"><i /><i /><i /></div>}{error && <p className="xs" role="alert">{error}</p>}<div ref={end} /></div>
+    {!canWrite ? <div className="pl w ro"><Lock size={15} />Your role can read this thread but not write in it.</div> : <>
+      {joinable && !joined && <div style={{ padding: "8px max(12px,calc((100% - 760px)/2)) 0", flex: "none" }}><button className="bt s w" onClick={join}><Radio size={13} />Join conversation (they will see "Support joined")</button></div>}
+      <div className="qr">{(QR[PPL[cur].r] || []).map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}<button onClick={() => send("📍 Shared my live location")}><Navigation size={12} style={{ verticalAlign: -2 }} /> Share location</button></div>
+      <div className="cb"><input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(v)} placeholder={"Message " + PPL[cur].n.split(" ")[0] + "…"} aria-label="Message" /><button className="ib g" aria-label="Send" onClick={() => send(v)}><Send size={17} /></button></div></>}
+  </>;
+  return inline ? <section className="th" aria-label={"Chat with " + PPL[cur].n}>{body}</section> : <Portal><div className="bd tbd" style={{ zIndex: 325 }} onClick={onClose} /><div className="fs top tdlg" role="dialog" aria-modal="true" aria-label="Chat">{body}</div></Portal>;
+}
+/* Comms: header Messages (inbox of conversations) and Support (opens the support thread straight away). */
+function useWide(px) {
+  const q = "(min-width:" + px + "px)", [w, setW] = useState(() => typeof matchMedia !== "undefined" && matchMedia(q).matches);
+  useEffect(() => { const m = matchMedia(q), f = () => setW(m.matches); m.addEventListener("change", f); f(); return () => m.removeEventListener("change", f); }, []); // eslint-disable-line
+  return w;
+}
+function Comms({ mode, convs, onClose, say, order, thread = {} }) {
+  const [chat, setChat] = useState(mode === "support" ? "sup" : null), [call, setCall] = useState(null), [sq, setSq] = useState(""), wide = useWide(1000);
+  const peers = mode === "support" ? ["sup"] : convs.map((c) => c.p), split = mode === "inbox" && wide;
+  useModal(onClose);
+  const shown = convs.filter((c) => !sq.trim() || PPL[c.p].n.toLowerCase().includes(sq.trim().toLowerCase()) || PPL[c.p].r.toLowerCase().includes(sq.trim().toLowerCase()));
+  const list = <>{shown.map((c) => <button key={c.p} className={cn("ct2", split && chat === c.p && "on")} style={{ padding: 12 }} onClick={() => setChat(c.p)}><Av id={c.p} s={44} on /><div className="fl"><div className="row"><span className="b tr fl">{PPL[c.p].n}</span><span className="xs mu">{c.t}</span></div><div className="xs mu tr">{PPL[c.p].r} · {c.last}</div></div>{c.un ? <span className="ch g">{c.un} new</span> : null}</button>)}
+    {!shown.length && <div className="cd mu" style={{ textAlign: "center" }}>{convs.length ? "Nobody matches." : "No conversations yet."}</div>}<p className="xs mu" style={{ textAlign: "center" }}>Chats and calls are free and keep phone numbers private.</p></>;
+  return <>{mode === "inbox" && !split && <Portal><div className="fs" role="dialog" aria-modal="true" aria-label="Messages">
+    <div className="hd"><h3 className="fl serif" style={{ fontSize: 20 }}>Messages</h3><button className="ib" aria-label="Close messages" onClick={onClose}><X size={18} /></button></div>
+    <div className="bdy">{list}</div></div></Portal>}
+    {split && <Portal><div className="bd" style={{ zIndex: 325 }} onClick={onClose} /><div className="fs msg" role="dialog" aria-modal="true" aria-label="Messages">
+      <aside className="ml"><div className="hd"><h3 className="fl serif" style={{ fontSize: 20 }}>Messages</h3><button className="ib" aria-label="Close messages" onClick={onClose}><X size={18} /></button></div>
+        <label className="ms"><Search size={15} className="mu" /><input value={sq} onChange={(e) => setSq(e.target.value)} placeholder="Search conversations" aria-label="Search conversations" /></label>
+        <div className="bdy">{list}</div></aside>
+      {chat ? <Thread inline order={order} peers={peers} start={chat} {...thread} onEsc={onClose} onCall={(p) => setCall(p)} onClose={() => setChat(null)} />
+        : <section className="th emp" aria-label="No conversation selected"><span className="lg big">D</span><h2 className="serif" style={{ fontSize: 26, marginTop: 18 }}>Dispatch Messages</h2><p className="mu" style={{ maxWidth: 320, textAlign: "center" }}>Select a conversation on the left to start chatting.</p><div className="ch"><ShieldCheck size={12} />Free in-app chats and calls · phone numbers stay private</div></section>}
+    </div></Portal>}
+    {!split && chat && <Thread order={order} peers={peers} start={chat} {...thread} onCall={(p) => { setChat(null); setCall(p); }} onClose={() => (mode === "support" ? onClose() : setChat(null))} />}
+    {call && <Call peer={call} onChat={() => { setChat(call); setCall(null); }} onEnd={(s) => { setCall(null); say(s ? "Call ended · " + s + "s, free" : "Call cancelled"); if (mode === "support") onClose(); }} />}</>;
+}
+function ContactBar({ peers, say, order, orderId, ring, clearRing, thread = {} }) {
+  const [chat, setChat] = useState(null), [call, setCall] = useState(null), [un, setUn] = useState({ [peers[0]]: 1 });
+  useEffect(() => { if (ring) { setCall({ p: ring, inc: true }); clearRing(); } }, [ring]); // eslint-disable-line
+  const cw = thread.canWrite !== false, cc = thread.canCall !== false;
+  return <><div className="col" style={{ gap: 8 }}>{peers.map((p) => <div key={p} className="ct2"><Av id={p} s={38} on /><div className="fl"><div className="b tr" style={{ fontSize: 13 }}>{PPL[p].n}</div><div className="xs mu">{PPL[p].r}</div></div>
+    <button className="ib" aria-label={"Chat with " + PPL[p].n} onClick={() => { setChat(p); setUn({ ...un, [p]: 0 }); }}>{cw ? <MessageCircle size={18} /> : <Eye size={18} />}{un[p] ? <span className="bdg">{un[p]}</span> : null}</button>
+    <button className="ib g" aria-label={"Call " + PPL[p].n} disabled={!cc} onClick={() => setCall({ p })}>{cc ? <Phone size={18} /> : <Lock size={15} />}</button></div>)}</div>
+    {chat && <Thread order={order} orderId={orderId} peers={peers} start={chat} {...thread} onCall={(p) => { setChat(null); setCall({ p }); }} onClose={() => setChat(null)} />}
+    {call && <Call peer={call.p} incoming={call.inc} onChat={() => { setChat(call.p); setCall(null); }} onEnd={(s) => { setCall(null); if (thread.onCallEnd) thread.onCallEnd(call.p, s); say(s ? "Call ended · " + s + "s, free" : call.inc ? "Call declined" : "Call cancelled"); }} />}</>;
+}
+/* Drop: a compact dropdown. options = [[key, emoji, name], ...] */
+function Drop({ label, value, options, onPick, right, head, placeholder }) {
+  const [o, setO] = useState(false), cur = options.find((x) => x[0] === value) || (placeholder ? ["", "", placeholder] : options[0]);
+  return <div className={cn("dr", right && "r")}><button className={cn("drb", o && "on")} aria-haspopup="listbox" aria-expanded={o} onClick={() => setO(!o)}>{label && <span className="mu">{label}</span>}{cur[1] ? <span>{cur[1]}</span> : null}<b>{cur[2]}</b><ChevronDown size={14} /></button>
+    {o && <><div className="dbg" onClick={() => setO(false)} /><div className="drm" role="listbox">{head && <div className="lb">{head}</div>}{options.map(([k, e, n, d]) => <button key={k} role="option" aria-selected={k === value} className={k === value ? "on" : ""} onClick={() => { setO(false); onPick(k); }}>{e ? <span style={{ fontSize: 17 }}>{e}</span> : null}<span className="fl" style={{ textAlign: "left" }}>{n}{d ? <span className="xs mu" style={{ display: "block", fontWeight: 500 }}>{d}</span> : null}</span>{k === value && <Check size={15} />}</button>)}</div></>}</div>;
+}
+function Sheet({ title, onClose, children, kind }) {
+  useModal(onClose);
+  return <Portal><div className="bd" onClick={onClose} /><div className={cn("sh", kind)} role="dialog" aria-label={title}><div className="hd"><h3 className="fl" style={{ fontSize: 17 }}>{title}</h3><button className="ib" aria-label="Close" onClick={onClose}><X size={18} /></button></div><div className="bdy">{children}</div></div></Portal>;
+}
+
+/* WalletCard: the shared premium balance card. amount is a formatted string; spark is a list of recent values. */
+function WalletCard({ label, badge, amount, id, delta, spark, sparkLabel, actions, foot, note, hideable = true }) {
+  const [hid, setHid] = useState(false);
+  const mt = String(amount).match(/^(\D*)(.*)$/), sym = mt[1], num = mt[2];
+  let path = "", area = "";
+  if (spark && spark.length > 1) {
+    const mx = Math.max(...spark), mn = Math.min(...spark), r = mx - mn || 1, st = 120 / (spark.length - 1);
+    const pts = spark.map((v, i) => [i * st, 32 - ((v - mn) / r) * 26 - 3]);
+    path = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+    area = path + " L120 36 L0 36 Z";
+  }
+  const gid = "g" + String(label).replace(/\W/g, "");
+  return <div className="wlt">
+    <div className="wh"><span className="wchip" aria-hidden="true" /><span className="wl">{label}</span>{badge}
+      {hideable && <button className="wey" aria-label={hid ? "Show balance" : "Hide balance"} aria-pressed={hid} onClick={() => setHid(!hid)}>{hid ? <EyeOff size={15} /> : <Eye size={15} />}</button>}</div>
+    <div className="wb">{sym && <i>{sym}</i>}<b>{hid ? "••••••" : num}</b></div>
+    <div className="wm">{delta && !hid && <span className="ch g"><ArrowUpRight size={11} />{delta}</span>}{id && <span className="wid">{id}</span>}{note && <span className="xs mu">{note}</span>}</div>
+    {path && !hid && <svg className="wsp" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label={sparkLabel || "Recent activity"}><defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--ac)" stopOpacity=".28" /><stop offset="1" stopColor="var(--ac)" stopOpacity="0" /></linearGradient></defs><path d={area} fill={"url(#" + gid + ")"} /><path d={path} fill="none" stroke="var(--ac)" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" /></svg>}
+    {actions && <div className="wact">{actions.map((a) => <button key={a.l} className={cn("bt", a.p && "p")} disabled={a.d} onClick={a.on}>{a.I && <a.I size={15} />}{a.l}</button>)}</div>}
+    {foot && <div className="wft"><ShieldCheck size={14} className="ac" /><span className="fl">{foot}</span></div>}
+  </div>;
+}
+/* TxList: grouped activity. rows = [{d:"in"|"out", t, s, a, g}] where g is the group heading. */
+function TxList({ rows, empty = "Nothing here yet.", icon }) {
+  if (!rows.length) return <p className="mu" style={{ marginTop: 10 }}>{empty}</p>;
+  let last = null;
+  return <div className="txg">{rows.map((r, i) => { const h = r.g !== last; last = r.g; const In = r.d === "in", I = icon || (In ? ArrowDownLeft : ArrowUpRight);
+    return <Fragment key={i}>{h && <div className="lb">{r.g}</div>}<div className="tx"><span className="em sm" style={{ width: 38, height: 38, background: In ? "var(--as)" : "var(--dgs)", color: In ? "var(--at)" : "var(--dng)" }}><I size={17} /></span><div className="fl"><div className="b tr">{r.t}</div>{r.s && <div className="xs mu tr">{r.s}</div>}</div><span className={cn("ta", In && "cr")}>{In ? "+" : "−"}{r.a}</span></div></Fragment>; })}</div>;
+}
+function SignOut({ say, who }) {
+  const [o, setO] = useState(false);
+  return <><div className="sgn"><button className="so" onClick={() => setO(true)}><LogOut size={16} />Sign out</button>{who && <span className="xs mu">Signed in as {who}</span>}</div>
+    {o && <Sheet title="Sign out of Dispatch?" onClose={() => setO(false)}><p className="mu">You will need to sign in again to see your account. Nothing is lost.</p><div className="row" style={{ justifyContent: "flex-end", marginTop: 6 }}><button className="bt o" onClick={() => setO(false)}>Stay signed in</button><button className="bt r" onClick={() => { setO(false); say("Signed out (demo)"); }}><LogOut size={14} />Sign out</button></div></Sheet>}</>;
+}
+const BANKS = ["Access Bank", "GTBank", "First Bank", "UBA", "Zenith Bank", "Kuda", "Opay", "Moniepoint", "PalmPay", "Wema Bank", "Fidelity Bank", "Sterling Bank", "Stanbic IBTC", "Union Bank", "FCMB"];
+/* Payouts: manage where money is paid. Every change is confirmed with the 4-digit PIN (demo 1234). */
+function Payouts({ holder, accounts, setAccounts, say, onClose, sched, onLog }) {
+  const [view, setView] = useState("list"), [bank, setBank] = useState("GTBank"), [num, setNum] = useState(""), [pn, setPn] = useState(["", "", "", ""]), [pend, setPend] = useState(null), refs = useRef([]);
+  const ok = num.length === 10, log = (m) => onLog && onLog(m);
+  const typeP = (i, v) => { if (!/^\d?$/.test(v)) return; const n = [...pn]; n[i] = v; setPn(n); if (v && i < 3 && refs.current[i + 1]) refs.current[i + 1].focus(); };
+  const gate = (label, fn) => { setPend({ label, fn }); setPn(["", "", "", ""]); setView("pin"); };
+  const confirm = () => { if (pn.join("") !== "1234") { say("Wrong PIN · try again"); setPn(["", "", "", ""]); refs.current[0] && refs.current[0].focus(); return; } pend.fn(); setPend(null); setView("list"); };
+  const add = () => { const id = "a" + Date.now(); setAccounts((l) => [...l, { id, bank, last: num.slice(-4), name: holder.toUpperCase(), def: l.length === 0 }]); log("Added payout account " + bank + " ···· " + num.slice(-4)); say(bank + " ···· " + num.slice(-4) + " added · ready in 24 hours"); setNum(""); };
+  const mkDef = (a) => gate("Make " + a.bank + " the default", () => { setAccounts((l) => l.map((x) => ({ ...x, def: x.id === a.id }))); log("Set default payout account " + a.bank + " ···· " + a.last); say(a.bank + " is now your default"); });
+  const del = (a) => gate("Remove " + a.bank + " ···· " + a.last, () => { setAccounts((l) => l.filter((x) => x.id !== a.id)); log("Removed payout account " + a.bank + " ···· " + a.last); say("Account removed"); });
+  const back = view !== "list" ? <button className="bt s" style={{ alignSelf: "flex-start" }} onClick={() => setView(view === "pin" ? "list" : "list")}><ChevronLeft size={14} />Back</button> : null;
+  return <Full dlg title="Payout accounts" onClose={onClose}>
+    {back}
+    {view === "list" && <>
+      <p className="mu">Money you withdraw is paid to your default account. New accounts become active after 24 hours for your safety.</p>
+      {accounts.map((a) => <div key={a.id} className={cn("pa", a.def && "def")}><span className="em sm"><Landmark size={20} className="ac" /></span><div className="fl"><div className="b tr">{a.bank} ···· {a.last}</div><div className="xs mu tr">{a.name}</div><div className="row" style={{ gap: 6, marginTop: 6, flexWrap: "wrap" }}>{!!a.def && <span className="ch g"><Check size={11} />Default</span>}<span className="ch"><ShieldCheck size={11} />Name matches</span></div></div>
+        <div className="col" style={{ gap: 6, alignItems: "flex-end" }}>{!a.def && <button className="bt s o" onClick={() => mkDef(a)}>Make default</button>}<button className="bt s r" disabled={a.def || accounts.length < 2} onClick={() => del(a)}><Trash2 size={13} />Remove</button></div></div>)}
+      {!accounts.length && <div className="cd mu" style={{ textAlign: "center" }}>No payout account yet. Add one to withdraw.</div>}
+      <button className="bt p" style={{ alignSelf: "flex-start" }} onClick={() => setView("add")}><Plus size={15} />Add account</button>
+      {sched && <div className="cd"><div className="lb">{sched.label}</div><div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}><Drop value={sched.value} options={sched.options} onPick={sched.onPick} /><span className="xs mu fl">{sched.note}</span></div></div>}</>}
+    {view === "add" && <>
+      <div className="lb">Bank</div><Drop value={bank} options={BANKS.map((x) => [x, "", x])} onPick={setBank} />
+      <div className="lb">Account number</div><input className="in" inputMode="numeric" maxLength={10} placeholder="10-digit account number" aria-label="Account number" value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, "").slice(0, 10))} />
+      {ok && <div className="pl"><Check size={16} className="ac" />{holder.toUpperCase()} · matches your verified profile</div>}
+      <p className="xs mu">Only accounts in your own name are accepted. We check the name before you can continue.</p>
+      <button className="bt p" style={{ alignSelf: "flex-start" }} disabled={!ok} onClick={() => gate("Add " + bank + " ···· " + num.slice(-4), add)}>Continue</button></>}
+    {view === "pin" && pend && <>
+      <div className="cd"><div className="lb">Confirm with your PIN</div><div style={{ margin: "6px 0 2px" }} className="b">{pend.label}</div></div>
+      <div className="lb">4-digit PIN · demo 1234</div>
+      <div className="pin4">{pn.map((d, i) => <input key={i} ref={(e) => (refs.current[i] = e)} autoFocus={i === 0} inputMode="numeric" type="password" maxLength={1} value={d} onChange={(e) => typeP(i, e.target.value)} aria-label={"PIN digit " + (i + 1)} />)}</div>
+      <button className="bt p" style={{ alignSelf: "flex-start" }} disabled={pn.join("").length < 4} onClick={confirm}><KeyRound size={15} />Confirm</button></>}
+  </Full>;
+}
+/* Full: edge-to-edge page with close button. `dlg` = centred dialog on desktop, full screen on phones. */
+function Full({ title, onClose, foot, up, dlg, children }) {
+  useModal(onClose);
+  return <Portal>{dlg && <div className="bd" style={{ zIndex: 325 }} onClick={onClose} />}<div className={cn("fs", up && "up", dlg && "dlg")} role="dialog" aria-modal="true" aria-label={title}>
+    <div className="hd"><h3 className="fl tr serif" style={{ fontSize: 20 }}>{title}</h3><button className="ib" aria-label="Close" onClick={onClose}><X size={18} /></button></div>
+    <div className="bdy">{children}</div>{foot}</div></Portal>;
+}
+
+/* ═════════ Shell: header (profile · notifications · messages · support), rails, bottom nav, trending sidebar ═════════ */
+function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side, mw = 780, convs, notifs, say, thread, onProfile, who, top, children }) {
+  const [bell, setBell] = useState(false), [inb, setInb] = useState(false), [sp, setSp] = useState(false), [nun, setNun] = useState(notifs.filter((n) => n.u).length), [mread, setMread] = useState(false);
+  const mun = mread ? 0 : convs.reduce((a, c) => a + (c.un || 0), 0);
+  const item = (it, x) => <button key={it.k} className={cn("ni", tab === it.k && "on", it.lk && "lk", x)} onClick={() => (it.go ? it.go() : setTab(it.k))} aria-label={it.l} aria-current={tab === it.k ? "page" : undefined}><span className="ic"><span className="iw">{it.lk ? <Lock size={19} /> : <it.I size={21} />}{it.b ? <span className="bdg">{it.b}</span> : null}</span></span><span className="lt">{it.l}</span></button>;
+  return <>
+    <div className="lay"><nav className="nv" aria-label="Main"><div className="brand"><span className="lg">{letter}</span><div><b>Dispatch</b><span className="lb">{role}</span></div></div>{nav.map((it) => item(it, tkeys && !tkeys.includes(it.k) ? "xt" : ""))}{tkeys && <button className={cn("ni mr", !tkeys.includes(tab) && "on")} onClick={onMore} aria-label="More sections"><span className="ic"><span className="iw"><Menu size={21} />{nav.some((x) => !tkeys.includes(x.k) && x.b) ? <span className="bdg">{nav.filter((x) => !tkeys.includes(x.k)).reduce((s, x) => s + (x.b || 0), 0) || null}</span> : null}</span></span><span className="lt">More</span></button>}{foot && <div className="nvf">{foot}</div>}</nav>
+      <main className="mn" style={{ "--mw": mw + "px" }}>
+        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{PPL.me.n}</b><span>{who}</span></span></button><span className="fl" />
+          <button className="ib" aria-label="Notifications" onClick={() => { setBell(true); setNun(0); }}><Bell size={19} />{nun ? <span className="bdg">{nun}</span> : null}</button>
+          <button className="ib" aria-label="Messages" onClick={() => { setInb(true); setMread(true); }}><MessageSquareText size={19} />{mun ? <span className="bdg">{mun}</span> : null}</button>
+          <button className="ib" aria-label="Support" onClick={() => setSp(true)}><Headset size={19} /></button></header>
+        {top}<div className="col">{children}</div></main>
+      {side && <aside className="sd" aria-label="Trending">{side}</aside>}</div>
+    <nav className="bn" aria-label="Main">{(mnav || nav).map((it) => item(it))}</nav>
+    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>)}</Sheet>}
+    {inb && <Comms mode="inbox" convs={convs} onClose={() => setInb(false)} say={say} thread={thread} />}
+    {sp && <Comms mode="support" convs={[{ p: "sup" }]} onClose={() => setSp(false)} say={say} order="Support desk" thread={{ ...thread, canWrite: true, canCall: true, joinable: false }} />}
+  </>;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   DISPATCH · VENDOR APP — one standalone file (react + lucide-react).
+   Kitchen board with on-duty staff, roles (Management / Supervisor / Attendant + your own), per-role permissions,
+   and a 4-digit order-completion PIN (demo PIN: 1234). Settings (theme, kitchen, team and roles) sits at the bottom of Account.
+   ══════════════════════════════════════════════════════════════════════ */
+const money = (n) => "₦" + Math.round(n).toLocaleString();
+const PPL = { me: { n: "Mama Put Kitchen", r: "Vendor", g: ["#fb923c", "#f43f5e"] }, cust: { n: "Customer", r: "Customer", g: ["#22d3ee", "#6366f1"] }, rider: { n: "Tunde Bako", r: "Rider", g: ["#60a5fa", "#a78bfa"] }, sup: { n: "Dispatch Support", r: "Support", g: ["#c4b5fd", "#a78bfa"] } };
+const QR = { Customer: ["Your order is ready", "Item unavailable, swap?", "Running 5 min late"], Rider: ["Order is ready", "Come to the side door", "Please confirm the order no."], Support: ["Need help", "Menu issue", "Payout question"] };
+const SEED = { cust: ["Please add extra pepper."], rider: [], sup: ["Hi Mama Put, we're here if you need anything."] };
+const PERMS = [["accept", "Accept orders"], ["reject", "Reject orders"], ["ready", "Mark orders ready"], ["complete", "Hand over and complete orders"], ["menu", "Edit menu and stock"], ["sales", "View sales"], ["payout", "Withdraw money"], ["staff", "Manage team and roles"]];
+const ALL = PERMS.map((p) => p[0]);
+const ROLES0 = [{ id: "mgmt", n: "Management", lock: 1, perms: ALL }, { id: "sup", n: "Supervisor", perms: ["accept", "reject", "ready", "complete", "menu", "sales"] }, { id: "att", n: "Attendant", perms: ["accept", "ready", "complete"] }];
+const STAFF0 = [{ id: "s1", n: "Amaka Obi", role: "mgmt", duty: 1, pin: "1234", since: "7:58 AM", done: 0, ok: 1, last: "Active now" }, { id: "s2", n: "Dele Bankole", role: "sup", duty: 1, pin: "1234", since: "8:05 AM", done: 9, ok: 1, last: "Active now" }, { id: "s3", n: "Ngozi Eze", role: "att", duty: 1, pin: "1234", since: "8:10 AM", done: 14, ok: 1, last: "Active now" }, { id: "s4", n: "Sani Lawal", role: "att", duty: 0, pin: "1234", since: "", done: 11, ok: 1, last: "Yesterday, 9:40 PM" }, { id: "s5", n: "Bisi Adeyemi", role: "att", duty: 0, pin: "1234", since: "", done: 6, ok: 1, last: "Sat, 6:15 PM" }, { id: "s6", n: "Ifeoma Nwosu", role: "sup", duty: 0, pin: "1234", since: "", done: 8, ok: 1, last: "Fri, 10:02 PM" }];
+const GR = [["#fb923c", "#f43f5e"], ["#60a5fa", "#a78bfa"], ["#22d3ee", "#6366f1"], ["#c4b5fd", "#a78bfa"], ["#fbbf24", "#f97316"]];
+const Sa = ({ n, i, s = 36, on }) => <span className="av" style={{ "--s": s + "px", "--g1": GR[i % 5][0], "--g2": GR[i % 5][1] }}>{n[0]}{on ? <i /> : null}</span>;
+const WHY = ["Item sold out", "Kitchen too busy", "Closing soon"];
+const WK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const CFG = { base: 80000, salt: 5, zero: 0, avg: 3700, step: 100 };
+const NOTIFS = [{ e: "🧾", t: "New order #DL-4821", d: "2× Jollof rice + chicken · ₦9,400", w: "now", u: 1 }, { e: "💸", t: "Settlement sent", d: "₦318,400 reached GTBank ···· 9102", w: "Yesterday", u: 1 }, { e: "⭐", t: "New 5★ review", d: "\"Best jollof in Wuse!\"", w: "2d" }];
+const vendorOrderView = (order) => ({
+  id: "#DL-" + order.order_number,
+  dbId: order.id,
+  items: (order.order_items || []).map((item) => item.quantity + "× " + item.item_name),
+  total: Number(order.total),
+  s: order.rider_id ? "handed" : ({ placed: "new", preparing: "prep", ready: "ready" }[order.status] || "closed"),
+  left: 0,
+  note: order.customer_note
+});
+const CSS2 = `.colh{display:flex;align-items:center;gap:8px;margin-bottom:10px}.colh i{width:8px;height:8px;border-radius:50%}
+.board{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;align-items:start}
+.tk{position:relative;border:1px solid var(--bd);border-radius:18px;background:var(--s1);padding:14px;margin-bottom:10px;animation:dlfd .3s both}.tk.new{border-color:var(--ab)}.tk.late{border-color:var(--wrn)}
+.rolec{border:1px solid var(--bd);border-radius:16px;padding:12px;background:var(--s1)}`;
+function PinSheet({ title, need, staff, roles, onOk, onClose, say }) {
+  const el = staff.filter((s) => s.duty && roles.find((r) => r.id === s.role).perms.includes(need));
+  const [who, setWho] = useState(el[0] && el[0].id), [pin, setPin] = useState(["", "", "", ""]), refs = useRef([]);
+  const typePin = (i, v) => { if (!/^\d?$/.test(v)) return; const n = [...pin]; n[i] = v; setPin(n); if (v && i < 3) refs.current[i + 1] && refs.current[i + 1].focus(); };
+  const go = () => { const s = el.find((x) => x.id === who); if (pin.join("") !== s.pin) { say("Wrong PIN · try again"); setPin(["", "", "", ""]); refs.current[0] && refs.current[0].focus(); return; } onOk(s); };
+  return <Sheet title={title} onClose={onClose}>
+    {!el.length ? <><div className="pl w"><Lock size={15} />Nobody on duty is allowed to do this. Clock a supervisor or manager in under Team and roles.</div></> : <>
+      <div className="lb">Who is completing this?</div>
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>{el.map((s) => <button key={s.id} className={cn("ct2", who === s.id && "on")} style={{ width: "auto", padding: "8px 14px 8px 8px" }} onClick={() => setWho(s.id)}><Sa n={s.n} i={staff.indexOf(s)} s={30} /><span className="b">{s.n.split(" ")[0]}</span></button>)}</div>
+      <div className="lb" style={{ marginTop: 6 }}>Enter your 4-digit PIN · demo 1234</div>
+      <div className="pin4">{pin.map((d, i) => <input key={i} ref={(e) => (refs.current[i] = e)} autoFocus={i === 0} inputMode="numeric" type="password" maxLength={1} value={d} onChange={(e) => typePin(i, e.target.value)} aria-label={"PIN digit " + (i + 1)} />)}</div>
+      <button className="bt p w xl" disabled={pin.join("").length < 4} onClick={go}><KeyRound size={18} />Confirm</button></>}</Sheet>;
+}
+export default function VendorApp() {
+  const th = useThemeState(), [toast, say] = useToast();
+  const [tab, setTab] = useState("q"), [q, setQ] = useState([]), [open, setOpen] = useState(null), [busy, setBusy] = useState(false), [rej, setRej] = useState(null), [why, setWhy] = useState(WHY[0]), [ring, setRing] = useState(null);
+  const [ownedVendor, setOwnedVendor] = useState(undefined), [backendReady, setBackendReady] = useState(false), [vendorDraft, setVendorDraft] = useState({ name: "", pickup_address: "", delivery_fee: "" }), [vendorSaving, setVendorSaving] = useState(false), [menuDraft, setMenuDraft] = useState({ name: "", price: "" }), [menuSaving, setMenuSaving] = useState(false);
+  const [accts, setAccts] = useState([]), [payM, setPayM] = useState(false), [sch, setSch] = useState("daily"), [menu, setMenu] = useState([]), [sales, setSales] = useState(0), [cnt, setCnt] = useState(0), [prep, setPrep] = useState(30), [hrs, setHrs] = useState([1, 1, 1, 1, 1, 1, 1]), [prefs, setPrefs] = useState({ auto: 0, snd: 1, print: 0 });
+  const [avail, setAvail] = useState(412500), [wd, setWd] = useState(false), [pays, setPays] = useState([["Settlement", "Yesterday", 318400], ["Settlement", "Mon", 402900], ["Settlement", "Last Fri", 377200]]);
+  const [tq, setTq] = useState(""), [rf, setRf] = useState("all"), [sf, setSf] = useState("all"), [mem, setMem] = useState(null), [nm, setNm] = useState(null), [tv, setTv] = useState("people"), [np, setNp] = useState(["", "", "", ""]), [roles, setRoles] = useState(ROLES0), [staff, setStaff] = useState(STAFF0), [setOpenS, setSetOpenS] = useState(false), [team, setTeam] = useState(false), [pinFor, setPinFor] = useState(null), [hand, setHand] = useState([]), [nr, setNr] = useState(""), [ns, setNs] = useState({ n: "", role: "att" });
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const vendor = await getOwnedVendor();
+        if (!active) return;
+        setOwnedVendor(vendor);
+        if (!vendor) return;
+        setBusy(!vendor.is_active);
+        const rows = await listVendorOrders();
+        if (!active) return;
+        setMenu((vendor.menu_items || []).map((item) => [item.name, Number(item.price), item.is_available ? 1 : 0, item.id]));
+        setQ(rows.map(vendorOrderView));
+      } catch (error) {
+        if (active) say(error instanceof Error ? error.message : "Could not load vendor orders.");
+      } finally {
+        if (active) setBackendReady(true);
+      }
+    };
+    const channel = subscribeToOrders(() => void refresh());
+    void refresh();
+    return () => {
+      active = false;
+      if (supabase) void supabase.removeChannel(channel);
+    };
+  }, []); // eslint-disable-line
+  const da = accts.find((a) => a.def), dTxt = da ? da.bank + " ···· " + da.last : "no account yet";
+  const toggleVendorAvailability = async () => {
+    if (!ownedVendor) return;
+    try {
+      await setOwnedVendorAvailability(ownedVendor.id, busy);
+      setOwnedVendor({ ...ownedVendor, is_active: busy });
+      setBusy(!busy);
+      say(busy ? "You're open and accepting orders" : "New orders paused");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not update availability.");
+    }
+  };
+  const saveVendorProfile = async (event) => {
+    event.preventDefault();
+    try {
+      setVendorSaving(true);
+      await createOwnedVendor({
+        name: vendorDraft.name.trim(),
+        description: "",
+        kind: "Restaurants",
+        category: "Local",
+        emoji: "🍽️",
+        country_code: "NG",
+        currency: "NGN",
+        pickup_address: vendorDraft.pickup_address.trim(),
+        delivery_fee: Number(vendorDraft.delivery_fee),
+        prep_minutes: 30
+      });
+      const vendor = await getOwnedVendor();
+      setOwnedVendor(vendor);
+      setBusy(true);
+      say("Vendor profile saved. Add menu items, then open your listing.");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not save vendor profile.");
+    } finally {
+      setVendorSaving(false);
+      setBackendReady(true);
+    }
+  };
+  const saveMenuItem = async (event) => {
+    event.preventDefault();
+    if (!ownedVendor) return;
+    try {
+      setMenuSaving(true);
+      await createVendorMenuItem(ownedVendor.id, {
+        name: menuDraft.name.trim(),
+        description: "",
+        category: ownedVendor.category,
+        emoji: ownedVendor.emoji,
+        price: Number(menuDraft.price),
+        is_available: true
+      });
+      const vendor = await getOwnedVendor();
+      if (vendor) {
+        setOwnedVendor(vendor);
+        setMenu(vendor.menu_items.map((item) => [item.name, Number(item.price), item.is_available ? 1 : 0, item.id]));
+      }
+      setMenuDraft({ name: "", price: "" });
+      say("Menu item added");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not add menu item.");
+    } finally {
+      setMenuSaving(false);
+    }
+  };
+  const toggleMenuItem = async (itemId, name, available) => {
+    try {
+      await setMenuItemAvailability(itemId, !available);
+      setMenu((items) => items.map((item) => item[3] === itemId ? [item[0], item[1], available ? 0 : 1, item[3]] : item));
+      say(available ? name + " marked sold out" : name + " back on the menu");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not update menu availability.");
+    }
+  };
+  const roleOf = (s) => roles.find((r) => r.id === s.role) || roles[2], duty = staff.filter((s) => s.duty), allow = (p) => duty.some((s) => roleOf(s).perms.includes(p)), PL = Object.fromEntries(PERMS);
+  const guard = (p, fn) => () => (allow(p) ? fn() : say("Nobody on duty can " + PL[p].toLowerCase() + " · open Team and roles"));
+  const mv = async (o, s, m) => {
+    try {
+      await setVendorOrderStatus(o.dbId, s === "prep" ? "preparing" : "ready");
+      setQ((rows) => rows.map((row) => row.dbId === o.dbId ? { ...row, s } : row));
+      say(m);
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not update the order.");
+    }
+  };
+  const reject = async () => {
+    try {
+      await setVendorOrderStatus(rej.dbId, "cancelled");
+      setQ((rows) => rows.filter((row) => row.dbId !== rej.dbId));
+      setRej(null); say("Order cancelled · customer updated");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not cancel the order.");
+    }
+  };
+  const peersFor = (o) => (o.s === "ready" ? ["rider", "cust", "sup"] : ["cust", "rider", "sup"]);
+  const cols = [["new", "New", "var(--ac)"], ["prep", "Preparing", "var(--wrn)"], ["ready", "Ready for pickup", "var(--inf)"]];
+  const tog = (k, msg) => { setPrefs({ ...prefs, [k]: prefs[k] ? 0 : 1 }); say(msg + (prefs[k] ? " off" : " on")); };
+  const clock = (id) => setStaff(staff.map((s) => (s.id === id ? { ...s, duty: s.duty ? 0 : 1, since: s.duty ? "" : new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) } : s)));
+  const setPerm = (rid, p) => setRoles(roles.map((r) => (r.id === rid ? { ...r, perms: r.perms.includes(p) ? r.perms.filter((x) => x !== p) : [...r.perms, p] } : r)));
+  const ticket = (o) => (
+    <div key={o.id} className={cn("tk", o.s === "new" && "new", o.s === "prep" && o.left < 120 && "late")}>
+      <button className="row" style={{ width: "100%" }} onClick={() => setOpen(open === o.id ? null : o.id)}><div className="fl"><div className="b">{o.id}</div><div className="xs mu tr">{o.items.join(" · ")}</div></div>
+        <b>{money(o.total)}</b></button>
+      {open === o.id && <div className="col" style={{ marginTop: 12, gap: 12 }}>
+        <div className="col" style={{ gap: 4 }}>{o.items.map((x) => <div key={x}>{x}</div>)}{o.note && <div className="ch o" style={{ alignSelf: "flex-start" }}>Note: {o.note}</div>}</div>
+        <ContactBar order={o.id} orderId={o.dbId} peers={peersFor(o)} say={say} ring={ring === o.id ? "rider" : null} clearRing={() => setRing(null)} />
+        {o.s === "new" && <div className="acts"><button className="bt r" onClick={guard("reject", () => setRej(o))}><Ban size={14} />Reject</button><button className="bt p" onClick={guard("accept", () => mv(o, "prep", "Accepted · customer notified"))}>Accept · {prep} min</button></div>}
+        {o.s === "prep" && <button className="bt p w" onClick={guard("ready", () => mv(o, "ready", "Ready · rider notified"))}><Check size={16} />Mark ready</button>}
+        {o.s === "ready" && <div className="pl"><Bike size={15} className="ac" />This order is ready and available to riders in their jobs queue.</div>}
+      </div>}
+    </div>
+  );
+  const newN = q.filter((x) => x.s === "new").length;
+  const nav = [{ k: "q", l: "Orders", I: ChefHat, b: newN }, { k: "menu", l: "Menu", I: UtensilsCrossed }, { k: "stats", l: "Sales", I: BarChart3 }, { k: "team", l: "Team", I: Users, b: duty.length ? 0 : 1 }, { k: "me", l: "Account", I: Store }];
+  const top = [["Jollof rice + chicken", 38], ["Pepper soup", 26], ["Moi moi", 18], ["Fried plantain", 12], ["Chapman", 6]], mix = [["Wallet", 46], ["Card", 34], ["Cash", 20]];
+  const convs = [{ p: "cust", last: "Please add extra pepper.", t: "now", un: 1 }, { p: "rider", last: "On my way to you.", t: "5m" }, { p: "sup", last: "We're here if you need anything.", t: "1h" }];
+  const mgmtN = staff.filter((s) => s.role === "mgmt" && s.ok).length;
+  const setRoleOf = (id, rid) => { if (!allow("staff")) { say("Only management can change roles"); return; } const s = staff.find((x) => x.id === id); if (s.role === "mgmt" && rid !== "mgmt" && mgmtN < 2) { say("Keep at least one manager on the team"); return; } setStaff(staff.map((x) => (x.id === id ? { ...x, role: rid } : x))); say(s.n.split(" ")[0] + " is now " + roles.find((r) => r.id === rid).n); };
+  const suspend = (id) => { if (!allow("staff")) { say("Only management can suspend people"); return; } const s = staff.find((x) => x.id === id); if (s.role === "mgmt" && s.ok && mgmtN < 2) { say("Keep at least one manager active"); return; } setStaff(staff.map((x) => (x.id === id ? { ...x, ok: x.ok ? 0 : 1, duty: 0, since: "" } : x))); say(s.n.split(" ")[0] + (s.ok ? " suspended · cannot clock in" : " reinstated")); };
+  const removeS = (id) => { if (!allow("staff")) { say("Only management can remove people"); return; } const s = staff.find((x) => x.id === id); if (s.role === "mgmt" && mgmtN < 2) { say("Keep at least one manager"); return; } setStaff(staff.filter((x) => x.id !== id)); setMem(null); say(s.n.split(" ")[0] + " removed from the team"); };
+  const shownS = staff.filter((s) => (rf === "all" || s.role === rf) && (sf === "all" || (sf === "on" ? s.duty : !s.duty)) && s.n.toLowerCase().includes(tq.toLowerCase()));
+  const M = staff.find((x) => x.id === mem);
+  const roleOpts = roles.map((r) => [r.id, "", r.n]);
+  const Rk = ({ a, b }) => <div className="rk"><span className="fl b">{a}</span><span className="xs mu">{b}</span></div>;
+  const sides = {
+    q: <>
+      <SW title="Trending in Abuja">{[["🍲 Jollof rice", "↑ 18%"], ["🍢 Suya", "↑ 12%"], ["🥘 Pepper soup", "↑ 9%"], ["🍹 Chapman", "↑ 7%"]].map(([a, b]) => <div key={a} className="rk"><span className="fl b">{a}</span><span className="ch g">{b}</span></div>)}</SW>
+      <SW title="Demand today">{[["Lunch · 12–2 PM", 82], ["Dinner · 5–8 PM", 94], ["Late night", 31]].map(([l, p]) => <div key={l} style={{ marginTop: 10 }}><div className="row xs"><span className="fl">{l}</span><b>{p}%</b></div><div className="pb" style={{ marginTop: 5 }}><i style={{ width: p + "%" }} /></div></div>)}</SW>
+      <SW title="Riders nearby"><Rk a="Available now" b="6 riders" /><Rk a="Avg pickup time" b="4 min" /></SW></>,
+    menu: <>
+      <SW title="Hot items across Abuja">{[["Jollof rice + chicken", "38/hr"], ["Beef suya", "29/hr"], ["Pepper soup", "17/hr"], ["Moi moi", "12/hr"]].map(([a, b]) => <Rk key={a} a={a} b={b} />)}</SW>
+      <SW title="Menu health"><Rk a="Available items" b={menu.filter((x) => x[2]).length + " of " + menu.length} /><Rk a="Sold out" b={menu.filter((x) => !x[2]).length} /></SW>
+      <div className="cd hl"><div className="lb">Tip</div><p style={{ marginTop: 6 }}>Switch an item off the moment it runs out. It lifts your acceptance rate.</p></div></>,
+    stats: <>
+      <SW title="Benchmark · kitchens"><Rk a="Avg ticket in Abuja" b="₦3,900" /><Rk a="Your avg ticket" b={money(CFG.avg)} /><Rk a="Avg prep time" b="12 min" /></SW>
+      <SW title="Payout"><Rk a="Settled daily" b="6 PM" /><Rk a="Platform fee" b="12%" /></SW>
+      <SW title="Peak hours in Abuja"><Rk a="Dinner" b="5–8 PM" /><Rk a="Lunch" b="12–2 PM" /></SW></>,
+    team: <>
+      <SW title="On duty now" act={<span className="ch g">{duty.length}</span>}>{duty.map((s) => <div key={s.id} className="rk"><Sa n={s.n} i={staff.indexOf(s)} s={30} on /><div className="fl"><div className="b tr">{s.n}</div><div className="xs mu">{roleOf(s).n} · since {s.since}</div></div></div>)}{!duty.length && <p className="xs mu">Nobody is clocked in.</p>}</SW>
+      <SW title="Completed today">{[...staff].sort((a, b) => b.done - a.done).slice(0, 3).map((s) => <Rk key={s.id} a={s.n} b={s.done + " orders"} />)}</SW>
+      <div className="cd hl"><div className="lb">Tip</div><p style={{ marginTop: 6 }}>Everyone completes orders with their own PIN, so the log always shows who handed over.</p></div></>,
+    me: <>
+      <SW title="Compliance"><Rk a="Food licence" b="Valid" /><Rk a="Health check" b="Due in 22 days" /><Rk a="Bank details" b="Verified" /></SW>
+      <SW title="Customer reviews"><Rk a="Last 7 days" b="4.8★" /><Rk a="Reviews" b="31" /></SW></>,
+  };
+  if (!backendReady) return <main className="dl" style={{ padding: 24 }}>Loading vendor workspace…</main>;
+  if (!ownedVendor) return <main className="dl" style={{ padding: 24 }}><style>{CSS}</style><section className="cd" style={{ width: "min(560px,100%)", margin: "8vh auto" }}><div className="lb">Vendor setup</div><h1 className="serif" style={{ fontSize: 28, margin: "8px 0" }}>Create your vendor profile</h1><p className="mu" style={{ marginBottom: 18 }}>This profile is private until you switch your listing on.</p><form className="col" onSubmit={saveVendorProfile}><label className="lb">Business name<input className="in" required value={vendorDraft.name} onChange={(event) => setVendorDraft({ ...vendorDraft, name: event.target.value })} /></label><label className="lb">Pickup address<input className="in" required value={vendorDraft.pickup_address} onChange={(event) => setVendorDraft({ ...vendorDraft, pickup_address: event.target.value })} /></label><label className="lb">Delivery fee in NGN<input className="in" type="number" min="0" step="1" required value={vendorDraft.delivery_fee} onChange={(event) => setVendorDraft({ ...vendorDraft, delivery_fee: event.target.value })} /></label><button className="bt p" disabled={vendorSaving || !vendorDraft.name.trim() || !vendorDraft.pickup_address.trim()}>{vendorSaving ? "Saving…" : "Save vendor profile"}</button></form></section></main>;
+  const side = sides[tab];
+  return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS + CSS2}</style>
+    <Shell letter="V" role="Vendor" nav={nav} tab={tab} setTab={setTab} mw={1040} convs={convs} notifs={NOTIFS} say={say} who={busy ? "Paused" : "Open · " + duty.length + " on duty"} onProfile={() => setTab("me")} side={side}
+      foot={<><div className="lb">Today</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{money(sales)}</div><div className="row xs mu" style={{ marginTop: 4 }}><span className={cn("ch", busy ? "o" : "g")}>{busy ? "Paused" : "Open"}</span>{cnt} orders</div></>}>
+      {tab === "q" && <>
+        <div className="cd row"><div className="fl"><div className="lb">{ownedVendor.name} · {ownedVendor.pickup_address}</div><h2 className="serif" style={{ fontSize: 24 }}>{busy ? "Paused: not taking orders" : "Open and taking orders"}</h2></div><Tgl big on={!busy} label="Taking orders" set={() => void toggleVendorAvailability()} /></div>
+        <div className="cd row"><Users size={18} className="ac" /><div className="fl"><div className="lb">On duty now · {duty.length}</div><div className="row" style={{ marginTop: 6, flexWrap: "wrap", gap: 6 }}>{duty.map((s) => <span key={s.id} className="ch" style={{ padding: "3px 10px 3px 4px" }}><Sa n={s.n} i={staff.indexOf(s)} s={22} />{s.n.split(" ")[0]} · {roleOf(s).n}</span>)}{!duty.length && <span className="ch r">Nobody on duty</span>}</div></div><button className="bt s o" onClick={() => setTab("team")}>Manage</button></div>
+        <div className="kp"><div><b>{money(sales)}</b><span className="xs mu">Today</span></div><div><b>{cnt}</b><span className="xs mu">Orders</span></div><div><b>11m</b><span className="xs mu">Avg prep</span></div></div>
+        <div className="board">{cols.map(([k, l, c]) => { const L = q.filter((x) => x.s === k); return <div key={k}><div className="colh"><i style={{ background: c }} /><span className="lb fl">{l}</span><span className="ch">{L.length}</span></div>{L.map(ticket)}{!L.length && <div className="tk mu" style={{ textAlign: "center", borderStyle: "dashed" }}>Nothing here</div>}</div>; })}</div>
+        {hand.length > 0 && <div className="cd"><div className="lb">Handed over today · who completed it</div>{hand.map((h, i) => <div key={i} className="rk"><KeyRound size={16} className="ac" /><div className="fl"><div className="b">{h.id} · {money(h.total)}</div><div className="xs mu">{h.by} · {h.role} · {h.t}</div></div></div>)}</div>}</>}
+      {tab === "menu" && <MenuManager menu={menu} menuDraft={menuDraft} setMenuDraft={setMenuDraft} menuSaving={menuSaving} saveMenuItem={saveMenuItem} money={money} guard={guard} setMenu={setMenu} say={say} setAvailability={toggleMenuItem} Tgl={Tgl} />}
+      {tab === "stats" && <>
+        <WalletCard label="Settlement wallet" amount={money(avail)} id={da ? da.bank + " ···· " + da.last : "No payout account"} delta="+9% vs last week" spark={[42, 55, 38, 61, 57, 72, 66].map((x) => x * 1000)} sparkLabel="Daily sales, last 7 days" actions={[{ l: "Withdraw", I: Banknote, p: 1, d: !avail, on: guard("payout", () => (da ? setWd(true) : (say("Add a payout account first"), setPayM(true)))) }, { l: "Accounts", I: Landmark, on: guard("payout", () => setPayM(true)) }]} foot={"To " + dTxt + " · settled " + (sch === "daily" ? "daily at 6 PM" : sch === "weekly" ? "every Monday" : "on request")} />
+        <Timeline cfg={CFG} m={money} live={sales} liveN={cnt} title="Total sales">{(s) => {
+          const avg = s.n ? Math.round(s.total / s.n) : 0, net = Math.round(s.total * 0.88);
+          return <>
+            <div className="kp">{[[s.n, "Orders"], [money(avg), "Avg ticket"], [money(net), "Net after fees"], [Math.round(s.n * 2.3), "Items sold"], [(s.n ? 2.4 : 0) + "%", "Rejected"], ["11m", "Avg prep"]].map(([a, b]) => <div key={b}><b>{a}</b><span className="xs mu">{b}</span></div>)}</div>
+            <div className="cd"><div className="lb">Top items</div>{top.map(([n, p]) => <div key={n} style={{ marginTop: 12 }}><div className="row xs"><span className="fl">{n}</span><b>{Math.round(s.n * 2.3 * p / 100)} sold</b></div><div className="pb" style={{ marginTop: 5 }}><i style={{ width: p / top[0][1] * 100 + "%" }} /></div></div>)}</div>
+            <div className="cd"><div className="lb">How customers paid</div>{mix.map(([n, p]) => <div key={n} style={{ marginTop: 12 }}><div className="row xs"><span className="fl">{n}</span><b>{money(s.total * p / 100)}</b></div><div className="pb" style={{ marginTop: 5 }}><i style={{ width: p + "%" }} /></div></div>)}<p className="xs mu" style={{ marginTop: 12 }}>Platform fee is 12% of food value. Net after fees is what you keep.</p></div></>; }}</Timeline>
+        <div className="cd"><div className="lb">Settlement history</div>{pays.map(([t, d, a], i) => <div key={i} className="rk"><Landmark size={18} className="ac" /><div className="fl"><div className="b">{t}</div><div className="xs mu">{d} · {dTxt}</div></div><b>{money(a)}</b></div>)}</div></>}
+      {tab === "team" && <>
+        <div className="kp"><div><b>{duty.length}</b><span className="xs mu">On duty</span></div><div><b>{staff.length}</b><span className="xs mu">Members</span></div><div><b>{roles.length}</b><span className="xs mu">Roles</span></div></div>
+        <div className="tbar" style={{ justifyContent: "space-between" }}><div className="sg2">{[["people", "People"], ["roles", "By role"]].map(([k, l]) => <button key={k} className={tv === k ? "on" : ""} onClick={() => setTv(k)}>{l}</button>)}</div><div className="acts" style={{ margin: 0 }}><button className="bt s o" onClick={() => setTeam(true)}><ShieldCheck size={14} />Permissions</button><button className="bt p s" onClick={() => setNm({ mode: "new", n: "", role: roles[roles.length - 1].id, pin: "", ex: "" })}><Plus size={14} />Add member</button></div></div>
+        {tv === "roles" && roles.map((r) => { const mm = staff.filter((s) => s.role === r.id); return <div key={r.id} className="cd" style={{ padding: "10px 14px" }}><div className="row"><span className="b fl">{r.n}</span><span className="ch">{mm.length} {mm.length === 1 ? "person" : "people"}</span>{r.lock ? <span className="ch g"><ShieldCheck size={11} />Full access</span> : <span className="ch">{r.perms.length} of {PERMS.length} permissions</span>}</div>
+          {mm.map((s) => <div key={s.id} className="rk"><Sa n={s.n} i={staff.indexOf(s)} on={s.duty} s={30} /><button className="fl b tr" style={{ textAlign: "left" }} onClick={() => setMem(s.id)}>{s.n}{!s.ok && <span className="ch r" style={{ marginLeft: 8 }}>Suspended</span>}</button><span className="xs mu">{s.duty ? "On duty" : "Off"}</span></div>)}
+          {!mm.length && <p className="xs mu" style={{ padding: "8px 0" }}>Nobody has this role yet.</p>}
+          <div className="acts" style={{ justifyContent: "flex-start", marginTop: 6 }}><button className="bt s o" onClick={() => setNm({ mode: "new", n: "", role: r.id, pin: "", ex: "" })}><Plus size={14} />Add person</button><button className="bt s" disabled={staff.every((s) => s.role === r.id)} onClick={() => setNm({ mode: "ex", n: "", role: r.id, pin: "", ex: "" })}>Move existing</button></div></div>; })}
+        {tv === "people" && <div className="tbar"><label className="row fl tsrch" style={{ height: 40, padding: "0 14px", border: "1px solid var(--bd)", borderRadius: 999, background: "var(--s1)", minWidth: 180 }}><Search size={15} className="mu" /><input value={tq} onChange={(e) => setTq(e.target.value)} placeholder="Search team" aria-label="Search team" style={{ flex: 1, minWidth: 0, background: "none", border: 0, outline: 0, color: "var(--tx)" }} /></label>
+          <Drop label="Role" value={rf} options={[["all", "", "All"], ...roleOpts]} onPick={setRf} /><Drop label="Status" value={sf} options={[["all", "", "All"], ["on", "", "On duty"], ["off", "", "Off duty"]]} onPick={setSf} />
+          </div>}
+        {tv === "people" && <div className="cd" style={{ padding: "4px 14px" }}>{shownS.map((s) => <div key={s.id} className="rk" style={{ flexWrap: "wrap" }}><button className="row" style={{ flex: "1 1 220px", minWidth: 0, textAlign: "left" }} onClick={() => setMem(s.id)}><Sa n={s.n} i={staff.indexOf(s)} on={s.duty} /><span className="fl"><span className="b tr" style={{ display: "block" }}>{s.n}{!s.ok && <span className="ch r" style={{ marginLeft: 8 }}>Suspended</span>}</span><span className="xs mu">{s.duty ? "On duty since " + s.since : "Off duty"} · {s.done} orders today</span></span></button>
+          <div className="row" style={{ marginLeft: "auto", flexWrap: "wrap" }}><Drop value={s.role} options={roleOpts} onPick={(r) => setRoleOf(s.id, r)} right />
+          <Tgl on={s.duty} label={"On duty " + s.n} set={() => { if (!s.ok) { say("Reinstate " + s.n.split(" ")[0] + " first"); return; } if (!allow("staff") && !s.duty) {} clock(s.id); say(s.n.split(" ")[0] + (s.duty ? " clocked out" : " is on duty")); }} />
+          <button className="bt s" onClick={() => setMem(s.id)}>Manage</button></div></div>)}{!shownS.length && <p className="mu" style={{ padding: "18px 0", textAlign: "center" }}>Nobody matches.</p>}</div>}</>}
+      {tab === "me" && <>
+        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>Mama Put Kitchen</h2><div className="xs mu">Wuse 2, Abuja · Kitchen</div></div><span className="ch g"><Check size={11} />Verified</span></div>
+        <div className="kp"><div><b>4.8</b><span className="xs mu">Rating</span></div><div><b>{cnt}</b><span className="xs mu">Orders today</span></div><div><b>97%</b><span className="xs mu">Accepted</span></div></div>
+        <div className="cd"><div className="lb">Opening hours · 8:00 AM – 10:00 PM</div>{WK.map((d, i) => <div key={d} className="rk"><span className="fl b">{d}</span><span className={cn("ch", hrs[i] ? "g" : "")}>{hrs[i] ? "Open" : "Closed"}</span><Tgl on={hrs[i]} label={d} set={() => { setHrs(hrs.map((h, j) => (j === i ? (h ? 0 : 1) : h))); say(d + (hrs[i] ? " closed" : " open")); }} /></div>)}</div>
+        <div className="cd row"><div className="fl"><div className="lb">Default prep time</div><div className="b" style={{ fontSize: 20 }}>{prep} min</div><div className="xs mu">Shown to customers and used for the kitchen timer</div></div><div className="stp"><button aria-label="Shorter prep time" onClick={() => setPrep(Math.max(5, prep - 5))}><Minus size={14} /></button><button className="p" aria-label="Longer prep time" onClick={() => setPrep(Math.min(60, prep + 5))}><Plus size={14} /></button></div></div>
+        <div className="cd"><div className="lb">Payout account</div><div className="row" style={{ marginTop: 10 }}><span className="em sm"><Landmark size={20} className="ac" /></span><div className="fl"><div className="b">{dTxt}</div><div className="xs mu">{da ? "Mama Put Kitchen Ltd · default" : "Add an account to withdraw"}</div></div><button className="bt s o" onClick={guard("payout", () => setPayM(true))}><Pencil size={13} />Manage</button></div></div>
+        <button className="setrow" onClick={() => setSetOpenS(true)}><Settings size={20} className="ac" /><span className="fl">Settings</span><ChevronRight size={18} className="mu" /></button></>}
+    </Shell>
+    {pinFor && <PinSheet title={pinFor.k === "done" ? "Complete " + pinFor.o.id : "Withdraw"} need={pinFor.k === "done" ? "complete" : "payout"} staff={staff} roles={roles} say={say} onClose={() => setPinFor(null)} onOk={(s) => (pinFor.k === "done" ? done(pinFor.o, s) : (setWd(true), setPinFor(null)))} />}
+    {rej && <Sheet title={"Reject " + rej.id} onClose={() => setRej(null)}><p className="mu">The customer is refunded and told why. Pick the honest reason.</p><div className="opt">{WHY.map((w) => <button key={w} className={why === w ? "on" : ""} onClick={() => setWhy(w)}>{why === w && <Check size={16} />}{w}</button>)}</div><button className="bt r w" onClick={reject}><Ban size={15} />Reject order</button></Sheet>}
+    {payM && <Payouts holder="Mama Put Kitchen Ltd" accounts={accts} setAccounts={setAccts} say={say} onClose={() => setPayM(false)} sched={{ label: "Settlement schedule", value: sch, options: [["daily", "", "Daily at 6 PM"], ["weekly", "", "Weekly · Monday"], ["manual", "", "Only when I withdraw"]], onPick: setSch, note: "Takes effect from the next settlement." }} />}
+    {wd && <Sheet title="Withdraw" onClose={() => setWd(false)}><div className="cd" style={{ padding: 12 }}><div className="lb">To</div><div className="b">{dTxt}</div></div><button className="bt p w xl" onClick={() => { setPays([["Withdrawal", "Just now", avail], ...pays]); setAvail(0); setWd(false); say("Withdrawal sent · arrives in minutes"); }}>Send {money(avail)}</button></Sheet>}
+    {setOpenS && <Full title="Settings" onClose={() => setSetOpenS(false)}>
+      <div className="cd"><div className="lb" style={{ marginBottom: 10 }}>Appearance</div><ThemeSwitch th={th} /><p className="xs mu" style={{ marginTop: 8 }}>Light is bright and crisp for a busy counter. Dark is easy on the eyes in the evening. Auto follows the device.</p></div>
+      <button className="setrow" onClick={() => setTeam(true)}><Users size={20} className="ac" /><div className="fl"><div>Team and roles</div><div className="xs mu" style={{ fontWeight: 500 }}>{duty.length} on duty · {roles.length} roles · order PINs</div></div><ChevronRight size={18} className="mu" /></button>
+      <div className="cd"><div className="lb">Kitchen</div>{[["auto", "Auto-accept orders", "Skip the New column when you're quiet"], ["snd", "Loud new-order alert", "Repeats until you open the ticket"], ["print", "Print tickets", "Send each accepted order to the printer"]].map(([k, t, d]) => <Rw key={k} t={t} d={d}><Tgl on={prefs[k]} label={t} set={() => tog(k, t)} /></Rw>)}</div>
+      <div className="cd"><div className="lb">Help and support</div><div style={{ marginTop: 10 }}><ContactBar order="Support desk" peers={["sup"]} say={say} /></div></div>
+      <SignOut say={say} who="Mama Put Kitchen" /></Full>}
+    {M && <Full dlg title="Team member" onClose={() => setMem(null)}>
+      <div className="cd hl row"><Sa n={M.n} i={staff.indexOf(M)} s={56} on={M.duty} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>{M.n}</h2><div className="xs mu">{roleOf(M).n} · {M.ok ? (M.duty ? "On duty since " + M.since : "Off duty") : "Suspended"}</div></div></div>
+      <div className="kp"><div><b>{M.done}</b><span className="xs mu">Orders today</span></div><div><b>{roleOf(M).perms.length}</b><span className="xs mu">Permissions</span></div><div><b>{M.last === "Active now" ? "Now" : "Away"}</b><span className="xs mu">{M.last}</span></div></div>
+      <div className="cd"><div className="lb">Role</div><div className="row" style={{ marginTop: 10, flexWrap: "wrap" }}><Drop value={M.role} options={roleOpts} onPick={(r) => setRoleOf(M.id, r)} /><span className="xs mu fl">Changes what they can do right away.</span></div></div>
+      <div className="cd"><Rw t="On duty" d="Only people clocked in can accept and hand over orders"><Tgl on={M.duty} label="On duty" set={() => { if (!M.ok) { say("Reinstate first"); return; } clock(M.id); }} /></Rw>
+        <div className="lb" style={{ marginTop: 10 }}>Reset 4-digit PIN</div><div className="row" style={{ marginTop: 8 }}><div className="pin4" style={{ margin: 0 }}>{np.map((d, i) => <input key={i} inputMode="numeric" type="password" maxLength={1} value={d} aria-label={"New PIN digit " + (i + 1)} onChange={(e) => { if (!/^\d?$/.test(e.target.value)) return; const n = [...np]; n[i] = e.target.value; setNp(n); }} />)}</div><button className="bt s" disabled={np.join("").length < 4} onClick={() => { setStaff(staff.map((x) => (x.id === M.id ? { ...x, pin: np.join("") } : x))); setNp(["", "", "", ""]); say("PIN updated for " + M.n.split(" ")[0]); }}>Save PIN</button></div></div>
+      <div className="row" style={{ flexWrap: "wrap" }}><button className="bt o" onClick={() => suspend(M.id)}><Ban size={14} />{M.ok ? "Suspend" : "Reinstate"}</button><button className="bt r" onClick={() => removeS(M.id)}><Trash2 size={14} />Remove from team</button></div></Full>}
+    {nm && (() => { const ex = staff.filter((s) => s.role !== nm.role), rn = (roles.find((r) => r.id === nm.role) || {}).n, can = allow("staff"), pinOk = !nm.pin || /^\d{4}$/.test(nm.pin);
+      return <Sheet title="Add to team" onClose={() => setNm(null)}>
+        <div className="sg2">{[["new", "New person"], ["ex", "Existing member"]].map(([k, l]) => <button key={k} className={nm.mode === k ? "on" : ""} onClick={() => setNm({ ...nm, mode: k, ex: "" })}>{l}</button>)}</div>
+        {!can && <div className="pl w"><Lock size={15} />Only management can add people or change roles.</div>}
+        <div className="lb">Role</div><Drop value={nm.role} options={roleOpts} onPick={(r) => setNm({ ...nm, role: r, ex: "" })} />
+        {nm.mode === "new" ? <><div className="lb">Full name</div><input className="in" placeholder="e.g. Ngozi Eze" aria-label="Full name" value={nm.n} onChange={(e) => setNm({ ...nm, n: e.target.value })} />
+          <div className="lb">4-digit PIN</div><input className="in" type="password" inputMode="numeric" maxLength={4} placeholder="Leave empty to start with 1234" aria-label="PIN" value={nm.pin} onChange={(e) => /^\d{0,4}$/.test(e.target.value) && setNm({ ...nm, pin: e.target.value })} />
+          <p className="xs mu">They use this PIN to hand over orders. {rn} can: {(roles.find((r) => r.id === nm.role) || { perms: [] }).perms.length} of {PERMS.length} permissions.</p>
+          <div className="acts"><button className="bt" onClick={() => setNm(null)}>Cancel</button><button className="bt p" disabled={!nm.n.trim() || !can || !pinOk || (nm.pin && nm.pin.length < 4)} onClick={() => { setStaff([...staff, { id: "s" + Date.now(), n: nm.n.trim(), role: nm.role, duty: 0, pin: nm.pin || "1234", since: "", done: 0, ok: 1, last: "Never" }]); say(nm.n.trim().split(" ")[0] + " added as " + rn); setNm(null); }}><Plus size={15} />Add as {rn}</button></div></>
+        : <><div className="lb">Who</div>{ex.length ? <Drop value={nm.ex} placeholder="Choose a member" options={ex.map((s) => [s.id, "", s.n + " · " + (roles.find((r) => r.id === s.role) || {}).n])} onPick={(id) => setNm({ ...nm, ex: id })} /> : <p className="mu">Everyone already has this role.</p>}
+          <div className="acts"><button className="bt" onClick={() => setNm(null)}>Cancel</button><button className="bt p" disabled={!nm.ex || !can} onClick={() => { setRoleOf(nm.ex, nm.role); setNm(null); }}>Move to {rn}</button></div></>}
+      </Sheet>; })()}
+    {team && <Full up dlg title="Roles and permissions" onClose={() => setTeam(false)}>
+      <p className="mu">Choose what each role can do. Use the Team tab to choose who has which role.</p>
+      {roles.map((r) => <div key={r.id} className="rolec"><div className="row"><span className="b fl">{r.n}</span>{r.lock ? <span className="ch g"><ShieldCheck size={11} />Full access</span> : <span className="ch">{r.perms.length} of {PERMS.length}</span>}{!r.lock && !["sup", "att"].includes(r.id) && <button className="ib" style={{ width: 34, height: 34 }} aria-label={"Delete role " + r.n} onClick={() => { if (staff.some((s) => s.role === r.id)) { say("Move people out of " + r.n + " first"); return; } setRoles(roles.filter((x) => x.id !== r.id)); }}><Trash2 size={15} /></button>}</div>
+        {PERMS.map(([p, l]) => <div key={p} className="sw-r"><span className="fl" style={{ fontSize: 13 }}>{l}</span><Tgl on={r.perms.includes(p)} label={r.n + " " + l} set={() => (r.lock ? say("Management always has full permissions") : setPerm(r.id, p))} /></div>)}</div>)}
+      <div className="cd"><div className="lb">Add a role</div><div className="row" style={{ marginTop: 8 }}><input className="in" placeholder="e.g. Cashier, Kitchen lead" aria-label="Role name" value={nr} onChange={(e) => setNr(e.target.value)} /><button className="bt p" disabled={!nr.trim()} onClick={() => { setRoles([...roles, { id: "r" + Date.now(), n: nr.trim(), perms: ["accept", "ready"] }]); setNr(""); say("Role added · now set what it can do"); }}><Plus size={15} />Add</button></div></div></Full>}
+    <Toast t={toast} /></div></ThemeCtx.Provider>;
+}
