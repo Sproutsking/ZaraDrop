@@ -1,7 +1,7 @@
-import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
+import { Fragment, lazy, Suspense, useState, useEffect, useRef, useContext, createContext } from "react";
 import { EyeOff, User, Search, Star, Clock, MapPin, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, BarChart3, ArrowDownLeft, ArrowUpRight, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Bike, Store, FileCheck, Zap, Trophy, Share2, Crown, Lock, Eye, Radio, Pencil, Menu, Package, Route, Timer, KeyRound, Info, Trash2 } from "lucide-react";
 import { claimRiderOrder, listAvailableRiderOrders, listOrderMessages, listRiderOrders, sendOrderMessage, setRiderOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
-import { Timeline } from "@zaradrop/ui";
+import { DemoNotice, Timeline } from "@zaradrop/ui";
 import ActiveDelivery from "./sections/orders/ActiveDelivery.jsx";
 
 /* ═════════ DESIGN SYSTEM (shared by all four Dispatch apps) ═════════ */
@@ -527,6 +527,10 @@ export default function RiderApp() {
   return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS}</style>
     <Shell letter="R" role="Rider" nav={nav} tab={tab} setTab={setTab} mw={720} convs={convs} notifs={NOTIFS} say={say} who={on ? "Online · " + day.n + " trips today" : "Offline"} onProfile={() => setTab("me")} side={side}
       foot={<><div className="lb">Today</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{money(day.e)}</div><div className="row xs mu" style={{ marginTop: 4 }}><span className="ch g">{on ? "Online" : "Offline"}</span>{day.n} trips</div></>}>
+      {tab === "jobs" && <DemoNotice>The job queue and order status are live. Availability, route map, distance, and fare figures are previews; GPS and rider payouts are not connected.</DemoNotice>}
+      {tab === "earn" && <DemoNotice>Earnings, cash-out accounts, history, and goals are preview data. No rider payout service is connected.</DemoNotice>}
+      {tab === "stats" && <DemoNotice>Trips, reliability, leaderboards, and badges are sample data and are not computed from your delivery history.</DemoNotice>}
+      {tab === "me" && <DemoNotice>Rider identity, documents, vehicle details, payout account, and settings are not yet loaded from or saved to your account.</DemoNotice>}
       {tab === "jobs" && <>
         <div className="cd row"><div className="fl"><div className="lb">Status</div><h2 className="serif" style={{ fontSize: 24 }}>{on ? "You're online" : "You're offline"}</h2><div className="xs mu">{on ? "Orders near you appear below. Chat and calls are free." : "Go online to see orders."}</div></div><Tgl big on={on} label="Online" set={() => setOn(!on)} /></div>
         <div className="kp"><div><b>{money(day.e)}</b><span className="xs mu">Today</span></div><div><b>{day.n}</b><span className="xs mu">Trips</span></div><div><b>{Math.round(day.km)} km</b><span className="xs mu">Distance</span></div></div>
@@ -569,7 +573,7 @@ export default function RiderApp() {
     </Shell>
     {det && <Full dlg title="Order details" onClose={() => setDet(null)} foot={!act || act.id !== det.id ? <div className="fb"><button className="bt p w xl" disabled={!!act} onClick={() => accept(det)}><Check size={20} />{act ? "Finish your current job first" : "Accept · " + money(det.fare + det.tip)}</button></div> : null}>
       <div className="cd row"><span className="em">{det.e}</span><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>{det.v}</h2><div className="xs mu">{det.id} · {det.area}</div></div><b className="serif" style={{ fontSize: 24 }}>{money(det.fare + det.tip)}</b></div>
-      <LiveMap step={0} />
+      <LiveMap orderId={det.dbId} active={false} />
       <div className="cd col" style={{ gap: 12 }}><div className="row"><Store size={17} className="ac" /><div className="fl"><div className="lb">Pickup</div><div className="b">{det.v}, {det.area}</div></div><span className="xs mu">{det.pk} km away</span></div><div className="row"><MapPin size={17} className="ac" /><div className="fl"><div className="lb">Drop-off</div><div className="b">{det.to}</div><div className="xs mu">For {det.cust} · phone stays private</div></div><span className="xs mu">{det.km} km</span></div></div>
       <div className="cd"><div className="lb">Items · {det.items.length}</div>{det.items.map((x) => <div key={x} className="rk"><Package size={16} className="ac" /><span className="fl">{x}</span></div>)}{det.note && <div className="ch o" style={{ marginTop: 10, whiteSpace: "normal" }}>Note: {det.note}</div>}</div>
       <div className="cd"><div className="lb">Payment and fare</div>{[["Payment", det.pay], ["Base fare", money(det.fare - Math.round(det.km * 14) * 10)], ["Distance · " + det.km + " km", money(Math.round(det.km * 14) * 10)], ["Tip", money(det.tip)]].map(([a, b]) => <div key={a} className="rk"><span className="fl mu">{a}</span><b>{b}</b></div>)}<div className="rk"><span className="fl b">You earn</span><b className="ac">{money(det.fare + det.tip)}</b></div></div>
@@ -584,8 +588,7 @@ export default function RiderApp() {
       <SignOut say={say} who="Tunde Bako" /></Full>}
     <Toast t={toast} /></div></ThemeCtx.Provider>;
 }
-function LiveMap({ step }) {
-  const pos = [["22%", "70%"], ["58%", "44%"], ["86%", "24%"]][step];
-  return <div className="map"><svg viewBox="0 0 300 170" preserveAspectRatio="none"><path d="M30 128 C90 128 90 44 160 56 S250 34 268 34" fill="none" stroke="var(--ac)" strokeWidth="2.5" strokeDasharray="4 7" strokeLinecap="round" /></svg>
-    <span className="pin" style={{ left: "10%", top: "75%" }}>🍲</span><span className="pin" style={{ left: pos[0], top: pos[1], background: "var(--ac)", color: "var(--acx)" }}>🛵</span><span className="pin" style={{ left: "90%", top: "20%" }}>🏠</span></div>;
+const MapboxOrderMap = lazy(() => import("../../../packages/ui/src/components/MapboxOrderMap").then((module) => ({ default: module.MapboxOrderMap })));
+function LiveMap({ orderId, active = false }) {
+  return <Suspense fallback={<div className="map" role="status">Loading Mapbox…</div>}><MapboxOrderMap orderId={orderId} mode="publish" active={active} /></Suspense>;
 }

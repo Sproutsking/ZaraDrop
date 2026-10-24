@@ -4,4 +4,5 @@ export * from './components/Sidebar';
 export * from './components/StatCard';
 export * from './components/StatusBadge';
 export * from './components/AuthGate';
+export * from './components/DemoNotice';
 export * from './sections/analytics/Timeline';

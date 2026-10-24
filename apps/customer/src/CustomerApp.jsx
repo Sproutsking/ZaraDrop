@@ -1,7 +1,7 @@
-import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
+import { Fragment, lazy, Suspense, useState, useEffect, useRef, useContext, createContext } from "react";
 import { EyeOff, Home, Receipt, User, Search, Star, Clock, MapPin, Phone, PhoneOff, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ShoppingBag, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, CreditCard, Banknote, RotateCcw, Navigation, Bell, BarChart3, ArrowDownLeft, ArrowUpRight, Award, LogOut, Smartphone, Landmark, Headset, Settings, Moon, Sun, Monitor, Bike, Store, Lock, Eye, Radio, Menu, KeyRound, Trash2 } from "lucide-react";
-import { listActiveVendors, listCustomerOrders, listOrderMessages, placeCustomerOrder, sendOrderMessage, subscribeToMarketplace, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
-import { Timeline } from "@zaradrop/ui";
+import { initializePaystackPayment, listActiveVendors, listCustomerOrders, listOrderMessages, placeCustomerOrder, sendOrderMessage, subscribeToMarketplace, subscribeToOrderMessages, subscribeToOrders, supabase, verifyPaystackPayment } from "@zaradrop/core";
+import { DemoNotice, Timeline } from "@zaradrop/ui";
 import OrderTracker from "./sections/orders/OrderTracker.jsx";
 import CheckoutFlow from "./sections/orders/CheckoutFlow.jsx";
 import MarketplaceBrowser from "./sections/marketplace/MarketplaceBrowser.jsx";
@@ -419,6 +419,8 @@ const customerOrderView = (order) => {
     total: Number(order.total),
     stage: status,
     eta: order.eta_minutes,
+    paymentMethod: order.payment_method,
+    paymentStatus: order.payment_status,
     rq: { mode: "pool" },
     status: order.status
   };
@@ -440,7 +442,7 @@ const CSS2 = `
 .cat{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}.cat button{flex:none;height:36px;padding:0 15px;border-radius:999px;border:1px solid var(--bd);background:var(--s1);color:var(--mu);font-weight:600;font-size:13px}.cat button.on{background:var(--ag);color:var(--acx);border-color:var(--ac)}
 .vn{display:flex;gap:14px;align-items:center;width:100%}
 .cart{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:45;width:min(400px,calc(100% - 24px));display:flex;align-items:center;gap:8px;padding:6px;border-radius:999px;background:var(--s1);border:1px solid var(--ab);color:var(--tx);animation:dlfd .25s}.cart .cx{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--bd);color:var(--mu);flex:none}.cart .cx:hover{border-color:var(--dng);color:var(--dng)}.cart .cm{flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:42px;padding:0 4px 0 6px;font-weight:700}.cart .cb2{position:relative;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--as);color:var(--at);flex:none}.cart .cb2 b{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--ag);color:var(--acx);font-size:10px;display:grid;place-items:center;padding:0 4px}.cart .vw{height:34px;padding:0 14px;border-radius:99px;background:var(--ag);color:var(--acx);display:grid;place-items:center;font-size:12.5px;font-weight:800;flex:none}
-.pay{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pay button{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px;border-radius:14px;border:1px solid var(--bd);background:var(--s1);font-size:12px;font-weight:600;color:var(--mu)}.pay button.on{border-color:var(--ac);color:var(--at);background:var(--as)}
+.pay{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.pay button{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px;border-radius:14px;border:1px solid var(--bd);background:var(--s1);font-size:12px;font-weight:600;color:var(--mu)}.pay button.on{border-color:var(--ac);color:var(--at);background:var(--as)}
 .fb.row{justify-content:center}.fb.row .fl{flex:0 1 340px}.wc{background:var(--s1);border-color:var(--ab)}
 @media(max-width:699px){.cart{bottom:calc(82px + env(safe-area-inset-bottom))}}
 `;
@@ -474,6 +476,8 @@ export default function CustomerApp() {
   const [tab, setTab] = useState("home"), [co, setCo] = useState("NG"), [dd, setDd] = useState(false), [cu, setCu] = useState("All"), [kind, setKind] = useState("All"), [cat, setCat] = useState("All"), [q, setQ] = useState(""), [vend, setVend] = useState(null), [cartV, setCartV] = useState(null), [cart, setCart] = useState({}), [chk, setChk] = useState(false), [pay, setPay] = useState("Cash");
   const [order, setOrder] = useState(null), [rq, setRq] = useState({ mode: "pool", rider: null, fb: true }), [rqOpen, setRqOpen] = useState(false), [past, setPast] = useState([]), [wal, setWal] = useState(() => Object.fromEntries(Object.keys(CO).map((country) => [country, { bal: 0, tx: [] }]))), [wf, setWf] = useState("all"), [spent, setSpent] = useState({}), [pts, setPts] = useState(0), [setOpen, setSetOpen] = useState(false);
   const [liveVendors, setLiveVendors] = useState([]), [deliveryAddress, setDeliveryAddress] = useState(""), [placing, setPlacing] = useState(false);
+  const [retryingPayment, setRetryingPayment] = useState(false);
+  const [paymentEmail, setPaymentEmail] = useState("");
   const [budget, setBudget] = useState(() => Object.fromEntries(Object.keys(CO).map((c) => [c, Math.round(60000 * CO[c].k)]))), [ads, setAds] = useState([]), [adSel, setAdSel] = useState({}), [adNew, setAdNew] = useState(null), [pm, setPm] = useState(0), [prefs, setPrefs] = useState({ upd: 1, promo: 0, snd: 1, auto: 0 });
   useEffect(() => {
     let active = true;
@@ -518,6 +522,39 @@ export default function CustomerApp() {
       }
     };
   }, []); // eslint-disable-line
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("paystack") !== "return") return;
+    const reference = params.get("reference");
+    let active = true;
+    const clearReturnParams = () => {
+      params.delete("paystack");
+      params.delete("reference");
+      const query = params.toString();
+      window.history.replaceState(window.history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+    };
+    if (!reference) {
+      say("Paystack returned without a payment reference. Retry payment from your order.");
+      clearReturnParams();
+      return;
+    }
+    void (async () => {
+      try {
+        const result = await verifyPaystackPayment(reference);
+        const orderRows = await listCustomerOrders();
+        if (!active) return;
+        const row = orderRows.find((candidate) => candidate.id === result.orderId);
+        setOrder(row ? customerOrderView(row) : null);
+        setTab("home");
+        say(result.status === "paid" ? "Payment confirmed · order sent to the vendor" : result.status === "pending" ? "Payment is still processing · check again shortly" : "Payment was not completed · retry from your order");
+      } catch (error) {
+        if (active) say(error instanceof Error ? error.message : "Could not verify Paystack payment.");
+      } finally {
+        clearReturnParams();
+      }
+    })();
+    return () => { active = false; };
+  }, []); // eslint-disable-line
   const VENDORS = liveVendors;
   const C = CO[co], m = (n) => fm(n, co), W = wal[co], qty = Object.values(cart).reduce((a, b) => a + b, 0), sub = cartV ? cartV.menu.reduce((a, [n, p]) => a + (cart[n] || 0) * p, 0) : 0;
   const addr = deliveryAddress || "Add your delivery address", cats = CATS[kind];
@@ -527,28 +564,47 @@ export default function CustomerApp() {
   const CU = CUIS.find((x) => x[0] === cu);
   const open = (v) => { if (cartV && cartV.id !== v.id) setCart({}); setCartV(v); setVend(v); };
   const add = (n, d) => setCart((c) => { const v = Math.max(0, (c[n] || 0) + d), o = { ...c, [n]: v }; if (!v) delete o[n]; return o; });
+  const startPaystackCheckout = async (orderId) => {
+    try {
+      setRetryingPayment(true);
+      const { authorizationUrl } = await initializePaystackPayment(orderId, paymentEmail);
+      window.location.assign(authorizationUrl);
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not start Paystack checkout.");
+      setRetryingPayment(false);
+    }
+  };
   const place = async () => {
     if (!cartV) return;
-    if (pay !== "Cash") { say("Online payments are not connected yet. Choose Cash to place this order."); return; }
     const address = deliveryAddress.trim();
     if (!address) { say("Enter a delivery address first."); return; }
+    if (pay === "Paystack" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paymentEmail.trim())) { say("Enter a valid payment receipt email."); return; }
+      await startPaystackCheckout(orderId);
+      {tab === "home" && order && <DemoNotice>Order status is live. The map and rider position are illustrative; GPS tracking is not connected yet.</DemoNotice>}
     try {
       setPlacing(true);
-      await placeCustomerOrder({
+      const orderId = await placeCustomerOrder({
         vendorId: cartV.id,
         deliveryAddress: address,
         note: "",
+        paymentMethod: pay === "Paystack" ? "paystack" : "cash_on_delivery",
         items: cartV.menu.filter(([name]) => cart[name]).map(([name, , menuItemId]) => ({ menuItemId, quantity: cart[name] }))
       });
       setRq({ mode: "pool", rider: null, fb: true });
       setCart({}); setChk(false); setVend(null); setCartV(null); setTab("home"); say("Order placed");
+      if (pay === "Paystack") {
+        const orderRows = await listCustomerOrders();
+        const row = orderRows.find((candidate) => candidate.id === orderId);
+        if (row) setOrder(customerOrderView(row));
+        await startPaystackCheckout(orderId);
+      }
     } catch (error) {
       say(error instanceof Error ? error.message : "Could not place the order.");
     } finally {
       setPlacing(false);
     }
   };
-  const done = order && order.stage >= 4;
+  const done = order && ['delivered', 'cancelled'].includes(order.status);
   const finish = () => { const oc = order.v.co; setPast([{ n: order.v.n, e: order.v.e, t: order.total, d: "Just now", co: oc }, ...past]); setSpent((s) => ({ ...s, [oc]: (s[oc] || 0) + order.total })); setPts((p) => p + Math.max(1, Math.round(order.total / (100 * CO[oc].k)))); setOrder(null); say("Thanks for rating 5★"); };
   const tier = pts >= 2500 ? "Platinum" : pts >= 1000 ? "Gold" : "Silver", nxt = pts >= 2500 ? null : pts >= 1000 ? 2500 : 1000;
   const nav = [{ k: "home", l: "Home", I: Home, b: order && !done ? 1 : 0 }, { k: "orders", l: "Orders", I: Receipt }, { k: "stats", l: "Insights", I: BarChart3 }, { k: "wallet", l: "Wallet", I: Wallet }, { k: "me", l: "Account", I: User }];
@@ -587,8 +643,12 @@ export default function CustomerApp() {
   return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS + CSS2}</style>
     <Shell letter="D" role="Customer" nav={nav} tab={tab} setTab={setTab} mw={760} convs={convs} notifs={NOTIFS} say={say} who={"Deliver to " + addr.split(",")[0]} onProfile={() => setTab("me")} side={side}
       foot={<><div className="lb">Wallet · {C.n}</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{m(W.bal)}</div><button className="bt s w" style={{ marginTop: 8 }} onClick={() => setTab("wallet")}><Plus size={13} />Top up</button></>}>
+      {order && tab === "home" && <DemoNotice>Order status is live. Mapbox shows the rider after they start sharing location during an active delivery.</DemoNotice>}
+      {tab === "stats" && <DemoNotice>Insights use sample estimates and are not calculated from your order history yet.</DemoNotice>}
+      {tab === "wallet" && <DemoNotice>Wallet balance, rewards, and transaction history are preview data. Cash on delivery is the only live payment method.</DemoNotice>}
+      {tab === "me" && <DemoNotice>Profile name, contact details, addresses, and account settings are preview data and are not saved to your account.</DemoNotice>}
       {tab === "home" && <>
-        {order && <OrderTracker order={order} done={done} finish={finish} say={say} stages={STAGES} ContactBar={ContactBar} LiveMap={LiveMap} formatTotal={(currentOrder) => fm(currentOrder.total, currentOrder.v.co)} />}
+        {order && <OrderTracker order={order} done={done} finish={finish} say={say} stages={STAGES} ContactBar={ContactBar} LiveMap={LiveMap} formatTotal={(currentOrder) => fm(currentOrder.total, currentOrder.v.co)} startPaystackCheckout={startPaystackCheckout} retryingPayment={retryingPayment} />}
         <MarketplaceBrowser setTab={setTab} address={addr} query={q} setQuery={setQ} cuisine={cu} cuisineDetails={CU} kind={kind} setKind={setKind} kinds={KINDS} categories={cats} category={cat} setCategory={setCat} Drop={Drop} cuisines={CUIS} foodEmojis={FE} vendors={list} countries={CO} formatAmount={m} categoryLabel={sing} openVendor={open} pickCuisine={pick} />
       </>}
       {tab === "orders" && <>
@@ -625,7 +685,7 @@ export default function CustomerApp() {
         <button className="setrow" onClick={() => setSetOpen(true)}><Settings size={20} className="ac" /><span className="fl">Settings</span><ChevronRight size={18} className="mu" /></button></>}
     </Shell>
     {tab === "home" && qty > 0 && cartV && !vend && !chk && <div className="cart"><button className="cx" aria-label="Cancel order and clear cart" onClick={() => { setCart({}); setCartV(null); say("Cart cleared"); }}><X size={16} /></button><button className="cm" onClick={() => setVend(cartV)} aria-label="View cart"><span className="cb2"><ShoppingBag size={17} /><b>{qty}</b></span><span className="fl"><span className="tr" style={{ display: "block", fontSize: 13 }}>{cartV.n}</span><span className="xs" style={{ opacity: .75 }}>{m(total)} · incl. delivery</span></span><span className="vw">View cart</span></button></div>}
-    <CheckoutFlow vendor={vend} checkoutOpen={chk} Full={Full} closeVendor={() => setVend(null)} closeCheckout={() => setChk(false)} cancelCart={() => { setCart({}); setCartV(null); setVend(null); say("Order cancelled"); }} openCheckout={() => setChk(true)} openRiderOptions={() => setRqOpen(true)} requestText={rqText(rq)} cart={cart} add={add} country={vend ? CO[vend.cu] : C} categoryLabel={sing} formatAmount={m} subtotal={sub} quantity={qty} deliveryAddress={deliveryAddress} setDeliveryAddress={setDeliveryAddress} placing={placing} place={place} />
+    <CheckoutFlow vendor={vend} checkoutOpen={chk} Full={Full} closeVendor={() => setVend(null)} closeCheckout={() => setChk(false)} cancelCart={() => { setCart({}); setCartV(null); setVend(null); say("Order cancelled"); }} openCheckout={() => setChk(true)} openRiderOptions={() => setRqOpen(true)} requestText={rqText(rq)} cart={cart} add={add} country={vend ? CO[vend.cu] : C} categoryLabel={sing} formatAmount={m} subtotal={sub} quantity={qty} deliveryAddress={deliveryAddress} setDeliveryAddress={setDeliveryAddress} pay={pay} setPay={setPay} paymentEmail={paymentEmail} setPaymentEmail={setPaymentEmail} placing={placing} place={place} />
     {rqOpen && <RiderPanel rq={rq} setRq={setRq} onClose={() => setRqOpen(false)} say={say} />}
     {adNew && <Sheet title="Add address" onClose={() => setAdNew(null)}><input className="in" placeholder="Label (Home, Work…)" aria-label="Label" value={adNew.l} onChange={(e) => setAdNew({ ...adNew, l: e.target.value })} /><input className="in" placeholder="Street, area, city" aria-label="Address" value={adNew.a} onChange={(e) => setAdNew({ ...adNew, a: e.target.value })} />
       <button className="bt p w" style={{ height: 50 }} disabled={!adNew.a.trim()} onClick={() => { const id = "a" + Date.now(); setAds([...ads, { id, l: adNew.l.trim() || "Other", a: adNew.a.trim(), co }]); setAdSel({ ...adSel, [co]: id }); setAdNew(null); say("Address saved"); }}><Check size={16} />Save address</button></Sheet>}
@@ -636,8 +696,7 @@ export default function CustomerApp() {
       <SignOut say={say} who="Ada Okoro" /></Full>}
     <Toast t={toast} /></div></ThemeCtx.Provider>;
 }
-function LiveMap({ stage }) {
-  const pos = [["12%", "78%"], ["12%", "78%"], ["14%", "76%"], ["58%", "44%"], ["88%", "22%"]][stage];
-  return <div className="map" style={{ height: 190 }}><svg viewBox="0 0 300 190" preserveAspectRatio="none"><path d="M30 148 C90 148 90 50 160 62 S250 36 268 36" fill="none" stroke="var(--ac)" strokeWidth="2.5" strokeDasharray="4 7" strokeLinecap="round" /></svg>
-    <span className="pin" style={{ left: "10%", top: "80%" }}>🍲</span><span className="pin" style={{ left: pos[0], top: pos[1], background: "var(--ac)", color: "var(--acx)" }}>🛵</span><span className="pin" style={{ left: "90%", top: "20%" }}>🏠</span></div>;
+const MapboxOrderMap = lazy(() => import("../../../packages/ui/src/components/MapboxOrderMap").then((module) => ({ default: module.MapboxOrderMap })));
+function LiveMap({ orderId }) {
+  return <Suspense fallback={<div className="map" role="status">Loading Mapbox…</div>}><MapboxOrderMap orderId={orderId} mode="track" /></Suspense>;
 }

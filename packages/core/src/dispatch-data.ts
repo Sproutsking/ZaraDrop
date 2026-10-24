@@ -3,6 +3,7 @@ import { requireSupabase } from './supabase';
 
 export type AppRole = 'customer' | 'rider' | 'vendor' | 'ops';
 export type OrderStatus = 'placed' | 'preparing' | 'ready' | 'on_the_way' | 'delivered' | 'cancelled';
+export type OAuthProvider = 'google' | 'facebook' | 'x' | `custom:${string}`;
 
 export interface Profile {
   id: string;
@@ -51,6 +52,8 @@ export interface OrderRecord {
   delivery_fee: number;
   total: number;
   eta_minutes: number;
+  payment_method: 'cash_on_delivery' | 'paystack';
+  payment_status: 'not_required' | 'pending' | 'paid' | 'failed';
   created_at: string;
   vendor?: Pick<VendorRecord, 'name' | 'emoji' | 'pickup_address' | 'country_code' | 'currency'>;
   order_items?: Array<{ item_name: string; quantity: number; unit_price: number }>;
@@ -88,16 +91,8 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   return data as Profile;
 }
 
-export async function signInWithPassword(email: string, password: string) {
-  return requireSupabase().auth.signInWithPassword({ email, password });
-}
-
-export async function signUpWithPassword(email: string, password: string, displayName: string) {
-  return requireSupabase().auth.signUp({
-    email,
-    password,
-    options: { data: { display_name: displayName } }
-  });
+export async function startOAuthSignIn(provider: OAuthProvider, redirectTo: string) {
+  return requireSupabase().auth.signInWithOAuth({ provider, options: { redirectTo } });
 }
 
 export async function signOut() {
@@ -119,16 +114,34 @@ export async function placeCustomerOrder(input: {
   vendorId: string;
   deliveryAddress: string;
   note: string;
+  paymentMethod: 'cash_on_delivery' | 'paystack';
   items: Array<{ menuItemId: string; quantity: number }>;
 }) {
   const { data, error } = await requireSupabase().rpc('place_order', {
     p_vendor_id: input.vendorId,
     p_delivery_address: input.deliveryAddress,
     p_items: input.items.map(({ menuItemId, quantity }) => ({ menu_item_id: menuItemId, quantity })),
-    p_note: input.note
+    p_note: input.note,
+    p_payment_method: input.paymentMethod
   });
   if (error) throw error;
   return data as string;
+}
+
+export async function initializePaystackPayment(orderId: string, customerEmail?: string) {
+  const { data, error } = await requireSupabase().functions.invoke('paystack-payment', {
+    body: { action: 'initialize', orderId, customerEmail }
+  });
+  if (error) throw error;
+  return data as { authorizationUrl: string; reference: string };
+}
+
+export async function verifyPaystackPayment(reference: string) {
+  const { data, error } = await requireSupabase().functions.invoke('paystack-payment', {
+    body: { action: 'verify', reference }
+  });
+  if (error) throw error;
+  return data as { status: 'paid' | 'pending' | 'failed'; orderId: string };
 }
 
 export async function listCustomerOrders() {
@@ -303,6 +316,14 @@ export interface OrderMessageRecord {
   created_at: string;
 }
 
+export interface RiderLocationRecord {
+  order_id: string;
+  rider_id: string;
+  longitude: number;
+  latitude: number;
+  updated_at: string;
+}
+
 export async function listOrderMessages(orderId: string): Promise<OrderMessageRecord[]> {
   const { data, error } = await requireSupabase()
     .from('order_messages')
@@ -335,6 +356,37 @@ export function subscribeToOrderMessages(orderId: string, onChange: () => void):
       event: '*',
       schema: 'public',
       table: 'order_messages',
+      filter: `order_id=eq.${orderId}`
+    }, onChange)
+    .subscribe();
+}
+
+export async function getOrderRiderLocation(orderId: string): Promise<RiderLocationRecord | null> {
+  const { data, error } = await requireSupabase()
+    .from('order_rider_locations')
+    .select('order_id, rider_id, longitude, latitude, updated_at')
+    .eq('order_id', orderId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as RiderLocationRecord | null;
+}
+
+export async function updateOrderRiderLocation(orderId: string, longitude: number, latitude: number) {
+  const { error } = await requireSupabase().rpc('update_order_rider_location', {
+    p_order_id: orderId,
+    p_longitude: longitude,
+    p_latitude: latitude
+  });
+  if (error) throw error;
+}
+
+export function subscribeToRiderLocation(orderId: string, onChange: () => void): RealtimeChannel {
+  return requireSupabase()
+    .channel(`order-rider-location-${orderId}-${crypto.randomUUID()}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'order_rider_locations',
       filter: `order_id=eq.${orderId}`
     }, onChange)
     .subscribe();

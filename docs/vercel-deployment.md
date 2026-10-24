@@ -4,9 +4,12 @@ Deploy these as **four separate Vercel projects**. Each gets its own URL and dep
 
 ## Before Deploying
 
-1. Apply `supabase/migrations/202610170001_initial_schema.sql` and `supabase/migrations/202610170002_live_rider_queue.sql` to the Supabase project, in that order.
+1. Apply all five SQL migrations to the Supabase project, in filename order, including the terminal-order, Paystack, and Mapbox location migrations.
 2. In Supabase, copy the project URL and the project's publishable key (or legacy anon key). Never use a personal access token or service-role key in a browser app.
 3. Make sure the deployment branch contains the latest code and `package-lock.json`.
+4. Configure Google, Facebook, and X under Supabase Authentication providers. Register Supabase's generated `/auth/v1/callback` URL with each provider and add each deployed app origin to Supabase's redirect URL allowlist. TikTok needs compatible custom OIDC support. Instagram needs an OIDC identity broker or a different auth gateway because its standard login is OAuth 2.0, not OIDC.
+5. Add `VITE_MAPBOX_PUBLIC_TOKEN` to each Vercel app project. Use a public token restricted to those app origins and the required map/style/tile scopes; never use a Mapbox secret token in a browser build.
+6. For Paystack, deploy `supabase/functions/paystack-payment` with `supabase functions deploy paystack-payment --no-verify-jwt`. The function verifies customer JWTs and Paystack webhook HMAC signatures itself. Set `PAYSTACK_SECRET_KEY` and `PAYSTACK_ALLOWED_APP_ORIGINS` as Edge Function secrets, and register `https://<project-ref>.supabase.co/functions/v1/paystack-payment` as the Paystack webhook URL. Keep the secret out of Vercel frontend environment variables. Test using Paystack test credentials before enabling live payments.
 
 ## Create Four Vercel Projects
 
@@ -27,6 +30,7 @@ For each project:
 4. Add these environment variables in Project Settings → Environment Variables for Production, Preview, and Development:
    - `VITE_SUPABASE_URL`: the Supabase project URL.
    - `VITE_SUPABASE_ANON_KEY`: the Supabase publishable/anon key.
+   - `VITE_MAPBOX_PUBLIC_TOKEN`: a Mapbox public token restricted to deployed app URLs and the required map/style/tile scopes.
 5. Deploy the project. Repeat with the other three root directories.
 
 Vercel will assign four distinct `*.vercel.app` links. You can add a separate custom domain to each project under Settings → Domains.
@@ -36,7 +40,7 @@ Vercel will assign four distinct `*.vercel.app` links. You can add a separate cu
 1. Open the Customer URL. With a configured Supabase project, it should show the customer sign-in/create-account screen until a user signs in.
 2. Open Rider, Vendor, and Ops URLs separately and sign in with administrator-provisioned accounts of their matching roles.
 3. Create a vendor profile and add available menu items in Vendor. Switch the listing on. Confirm the Customer app shows it.
-4. Place a cash-on-delivery test order as a customer. Confirm it appears for Vendor, then in the Rider queue; claim it and check that order status and order chat update in Customer and Ops.
+4. Place one cash-on-delivery order and one Paystack test order. Confirm unpaid online orders stay hidden from Vendor/Rider; verify a successful test payment releases the order, then test vendor status, rider claim, consented location sharing, customer map updates, and Ops monitoring.
 5. Keep Ops access restricted. A separate URL is not a security boundary; Supabase RLS and role-checked RPC functions remain the authorization boundary.
 
 ## Local Development
@@ -45,4 +49,4 @@ At the repository root, copy `.env.example` to `.env.local`, add the publishable
 
 ## Current Scope
 
-The order, vendor catalog, rider assignment/status, and order-chat paths use Supabase. Payments, wallet funding/withdrawals, several analytics panels, and some team/support/admin sections are not yet backed by live services. Cash on delivery is the only checkout method currently available. Do not treat sample analytics or payout values as real financial records.
+The order, vendor catalog, rider assignment/status, order messages, Paystack checkout, and order-scoped rider location paths use Supabase when the corresponding migrations, Edge Function, and provider credentials are deployed. Wallet funding/withdrawals, refunds, most analytics, customer/vendor/rider administration, team permissions, and support tickets remain demo/local state. The current Mapbox integration shares a live point; geocoding and turn-by-turn navigation are not implemented. Do not treat sample analytics or payout values as real financial records.

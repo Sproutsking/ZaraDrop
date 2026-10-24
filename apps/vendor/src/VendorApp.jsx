@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
 import { EyeOff, Search, Clock, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, BarChart3, ArrowDownLeft, ArrowUpRight, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Store, ChefHat, UtensilsCrossed, Ban, Users, Lock, Eye, Radio, Pencil, Menu, KeyRound, Trash2 } from "lucide-react";
 import { createOwnedVendor, createVendorMenuItem, getOwnedVendor, listOrderMessages, listVendorOrders, sendOrderMessage, setMenuItemAvailability, setOwnedVendorAvailability, setVendorOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
-import { Timeline } from "@zaradrop/ui";
+import { DemoNotice, Timeline } from "@zaradrop/ui";
 import MenuManager from "./sections/menu/MenuManager.jsx";
 
 /* ═════════ DESIGN SYSTEM (shared by all four Dispatch apps) ═════════ */
@@ -620,6 +620,11 @@ export default function VendorApp() {
   return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS + CSS2}</style>
     <Shell letter="V" role="Vendor" nav={nav} tab={tab} setTab={setTab} mw={1040} convs={convs} notifs={NOTIFS} say={say} who={busy ? "Paused" : "Open · " + duty.length + " on duty"} onProfile={() => setTab("me")} side={side}
       foot={<><div className="lb">Today</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{money(sales)}</div><div className="row xs mu" style={{ marginTop: 4 }}><span className={cn("ch", busy ? "o" : "g")}>{busy ? "Paused" : "Open"}</span>{cnt} orders</div></>}>
+      {tab === "q" && <DemoNotice>Order tickets, listing availability, and menu inventory are live. Staff shifts, sales totals, prep metrics, and handover records are preview data.</DemoNotice>}
+      {tab === "menu" && <DemoNotice>Menu changes are saved. Item categories and images are not yet managed here.</DemoNotice>}
+      {tab === "stats" && <DemoNotice>Settlement balances, payout accounts, history, and sales analytics are preview data. No payment or settlement service is connected.</DemoNotice>}
+      {tab === "team" && <DemoNotice>Team members, roles, permissions, and PINs are stored only in this browser and do not secure backend actions.</DemoNotice>}
+      {tab === "me" && <DemoNotice>Opening hours, prep time, account details, and compliance records are not yet loaded from or saved to your vendor profile.</DemoNotice>}
       {tab === "q" && <>
         <div className="cd row"><div className="fl"><div className="lb">{ownedVendor.name} · {ownedVendor.pickup_address}</div><h2 className="serif" style={{ fontSize: 24 }}>{busy ? "Paused: not taking orders" : "Open and taking orders"}</h2></div><Tgl big on={!busy} label="Taking orders" set={() => void toggleVendorAvailability()} /></div>
         <div className="cd row"><Users size={18} className="ac" /><div className="fl"><div className="lb">On duty now · {duty.length}</div><div className="row" style={{ marginTop: 6, flexWrap: "wrap", gap: 6 }}>{duty.map((s) => <span key={s.id} className="ch" style={{ padding: "3px 10px 3px 4px" }}><Sa n={s.n} i={staff.indexOf(s)} s={22} />{s.n.split(" ")[0]} · {roleOf(s).n}</span>)}{!duty.length && <span className="ch r">Nobody on duty</span>}</div></div><button className="bt s o" onClick={() => setTab("team")}>Manage</button></div>

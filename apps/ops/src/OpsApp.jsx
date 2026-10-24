@@ -1,6 +1,7 @@
 import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
 import { assignOpsOrder, listOpsOrders, listOpsRiders, listOrderMessages, sendOrderMessage, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
 import { Timeline } from "@zaradrop/ui";
+import { DemoNotice } from "@zaradrop/ui";
 import { EyeOff, Search, Clock, MapPin, Phone, PhoneOff, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, ArrowDownLeft, ArrowUpRight, Award, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Bike, Store, Ban, Users, Activity, Truck, ScrollText, Lock, Eye, RefreshCw, Undo2, UserCog, Radio, TriangleAlert, Gift, Menu, Ticket, Flag, Route, KeyRound, UserCheck, Trash2 } from "lucide-react";
 
 /* ═════════ DESIGN SYSTEM (shared by all four Dispatch apps) ═════════ */
@@ -428,11 +429,21 @@ const opsOrderView = (order, riderProfiles) => ({
   vendorId: order.vendor_id,
   riderId: order.rider_id,
   rider: riderProfiles.find((rider) => rider.id === order.rider_id)?.display_name || null,
+  paymentMethod: order.payment_method,
+  paymentStatus: order.payment_status,
+  createdAt: order.created_at,
+  etaMinutes: order.eta_minutes,
   st: ({ placed: 0, preparing: 1, ready: 2, on_the_way: 3, delivered: 4, cancelled: 4 })[order.status] ?? 0,
   status: order.status,
-  flag: "",
   amt: Number(order.total)
 });
+const lateMinutes = (order, now) => {
+  if (!order || ['delivered', 'cancelled'].includes(order.status)) return 0;
+  const deadline = new Date(order.createdAt).getTime() + order.etaMinutes * 60_000;
+  return Number.isFinite(deadline) ? Math.max(0, Math.floor((now - deadline) / 60_000)) : 0;
+};
+const isDispatchable = (order) => order.paymentMethod !== 'paystack' || order.paymentStatus === 'paid';
+const orderStatusLabel = (order) => order.status === 'cancelled' ? 'Cancelled' : order.paymentMethod === 'paystack' && order.paymentStatus !== 'paid' ? order.paymentStatus === 'failed' ? 'Payment failed' : 'Awaiting payment' : STAGES[order.st];
 const PAY0 = [["Riders · this week", "41 riders", 2400000], ["Vendors · this week", "18 vendors", 8100000], ["Rider bonuses · this week", "29 riders", 186500]];
 const REF0 = [["#DL-4812", "Wrong item", 3200], ["#DL-4809", "Cold food", 4500]];
 const TEAM0 = [["Amaka Obi", "support"], ["Dele Bankole", "dispatch"], ["Ngozi Eze", "finance"], ["Tola Ade", "manager"], ["You", "admin"]];
@@ -472,6 +483,7 @@ export default function OpsApp() {
   const [bonus, setBonus] = useState(B0), [pub, setPub] = useState(B0), [bsub, setBsub] = useState("rules"), [sim, setSim] = useState({ n: 12, peak: 4, km: 6, rain: 0, night: 2, acc: 88, rate: 4.6 }), [gifts, setGifts] = useState(G0), [gf, setGf] = useState({ id: "r1", amt: 1000, note: "" });
   const [tix, setTix] = useState(T0), [tk, setTk] = useState(null), [res, setRes] = useState(null);
   const [pac, setPac] = useState([["Cafe Neo", "Vendor", "Access Bank ···· 5581", "Added 12 min ago"], ["Bisi Adeyemi", "Rider", "Opay ···· 1203", "Added 1 hour ago"]]), [holds, setHolds] = useState({}), [zc, setZc] = useState(Z0), [zp, setZp] = useState(Z0), [team, setTeam] = useState(TEAM0);
+  const [clockNow, setClockNow] = useState(Date.now());
   const can = (p) => !p || String(p).split("|").some((x) => perms[role].includes(x)), RN = ROLES[role][0];
   const audit = (m) => setLogs((l) => [["Just now", m, RN], ...l]);
   useEffect(() => {
@@ -497,11 +509,15 @@ export default function OpsApp() {
       if (supabase) void supabase.removeChannel(channel);
     };
   }, []); // eslint-disable-line
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => { const n = NAV.find((x) => x[0] === tab); if (n && !can(n[3])) setTab("live"); }, [role, perms]); // eslint-disable-line
   const go = (n) => { setMore(false); if (!can(n[3])) { say("Locked for " + RN + ": needs " + n[3].split("|").map((x) => PL[x].toLowerCase()).join(" or ")); return; } setTab(n[0]); };
   const o = orders.find((x) => x.id === sel) || orders[0] || { id: "", dbId: "", cust: "", vend: "", rider: null, riderId: null, vendorId: "", st: 0, flag: "", amt: 0 };
   PPL.cust.n = o.cust; PPL.rider.n = o.rider || "Rider"; PPL.vendor.n = o.vend;
-  const shown = orders.filter((x) => fl === "all" || (fl === "late" && x.flag === "late") || (fl === "norider" && !x.rider));
+  const shown = orders.filter((x) => fl === "all" || (fl === "late" && lateMinutes(x, clockNow) > 0) || (fl === "norider" && isDispatchable(x) && !x.riderId && !['delivered', 'cancelled'].includes(x.status)));
   const peers = o.rider ? ["cust", "rider", "vendor"] : ["cust", "vendor"];
   const threadFor = (what) => ({ canWrite: can("chat"), canCall: can("call"), joinable: can("chat"), onSend: (p, k) => audit(k === "join" ? "Joined chat on " + what : "Messaged " + PPL[p].r.toLowerCase() + " on " + what), onCallEnd: (p, s) => { if (s) audit("Called " + PPL[p].r.toLowerCase() + " on " + what + " (" + s + "s)"); } });
   const dist = (id) => ((parseInt(id.slice(1)) * 7) % 25 + 4) / 10;
@@ -511,7 +527,7 @@ export default function OpsApp() {
     if (!targetOrder) return;
     try {
       await assignOpsOrder(targetOrder.dbId, riderId);
-      setOrders((rows) => rows.map((row) => row.dbId === targetOrder.dbId ? { ...row, rider: rider?.display_name || "Rider", riderId, flag: "" } : row));
+      setOrders((rows) => rows.map((row) => row.dbId === targetOrder.dbId ? { ...row, rider: rider?.display_name || "Rider", riderId } : row));
       audit("Assigned " + (rider?.display_name || "rider") + " to " + targetOrder.id);
       say((rider?.display_name || "Rider") + " assigned to " + targetOrder.id);
       setAsg(null);
@@ -519,8 +535,17 @@ export default function OpsApp() {
       say(error instanceof Error ? error.message : "Could not assign this rider.");
     }
   };
-  const flag = (f) => (f === "late" ? <span className="ch o"><Clock size={11} />Late 9 min</span> : f === "norider" ? <span className="ch r">No rider</span> : null);
-  const attn = orders.filter((x) => x.flag).length, pendR = riders.filter((x) => x.st === "pending").length, openT = tix.filter((x) => x.st !== "done").length;
+  const flag = (order) => {
+    const overdue = lateMinutes(order, clockNow);
+    if (overdue) return <span className="ch o"><Clock size={11} />Late {overdue} min</span>;
+    if (!order.riderId && !['delivered', 'cancelled'].includes(order.status)) return <span className="ch r">No rider</span>;
+    return null;
+  };
+  const activeOrders = orders.filter((order) => !['delivered', 'cancelled'].includes(order.status));
+  const unassignedOrders = activeOrders.filter((order) => isDispatchable(order) && !order.riderId);
+  const overdueOrders = activeOrders.filter((order) => lateMinutes(order, clockNow) > 0);
+  const attn = activeOrders.filter((order) => lateMinutes(order, clockNow) > 0 || (isDispatchable(order) && !order.riderId)).length;
+  const pendR = riders.filter((r) => r.st === "pending").length, openT = tix.filter((x) => x.st !== "done").length;
   const refund = (id, a) => { audit("Refunded " + id + " " + money(a)); say(id + " refunded"); };
   const setR = (id, p) => setRiders((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x))), setV = (id, p) => setVends((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x))), setC = (id, p) => setCusts((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x)));
   const patch = { r: setR, v: setV, c: setC }, lists = { r: riders, v: vends, c: custs }, tag = { r: "rider", v: "vendor", c: "customer" };
@@ -538,11 +563,11 @@ export default function OpsApp() {
   const search = (k, ph) => <label className="srch"><Search size={15} className="mu" /><input value={qs[k]} onChange={(e) => setQs({ ...qs, [k]: e.target.value })} placeholder={ph} aria-label={ph} /></label>;
   const rolebar = <div className="rs" role="group" aria-label="Preview as role"><span className="lb" style={{ flex: "none" }}>Preview as</span>{Object.entries(ROLES).map(([k, r]) => <button key={k} className={role === k ? "on" : ""} aria-pressed={role === k} onClick={() => { setRole(k); say("Now viewing as " + r[0]); }}><UserCog size={14} />{r[0]}</button>)}</div>;
   const panel = () => <div className="cd hl"><div className="row"><div className="fl"><div className="lb">Order {o.id}</div><h2 className="serif" style={{ fontSize: 22 }}>{o.vend}</h2><div className="xs mu">{o.cust} · {money(o.amt)} · rider {o.rider || "not assigned"}</div></div><span className={cn("ch", can("chat") ? "g" : "")}>{can("chat") ? <><Check size={11} />Can intervene</> : <><Eye size={11} />Read only</>}</span></div>
-    <div className="st">{STAGES.map((s, i) => <i key={s} className={i < o.st ? "d" : i === o.st ? "n" : ""} />)}</div><div className="xs mono ac">{STAGES[o.st]}</div>
+    <div className="st">{STAGES.map((s, i) => <i key={s} className={i < o.st ? "d" : i === o.st ? "n" : ""} />)}</div><div className="xs mono ac">{orderStatusLabel(o)}</div>
     <div className="lb" style={{ margin: "16px 0 8px" }}>Everyone on this order · free in-app</div>
     <ContactBar key={o.id + role + can("chat") + can("call")} order={o.id} orderId={o.dbId} peers={peers} say={say} thread={threadFor(o.id)} />
     <div className="row" style={{ marginTop: 14, flexWrap: "wrap" }}>
-      <button className="bt" disabled={!can("assign")} onClick={() => setAsg(o.id)}>{can("assign") ? <RefreshCw size={14} /> : <Lock size={13} />}{o.rider ? "Reassign rider" : "Assign rider"}</button>
+      <button className="bt" disabled={!can("assign") || !isDispatchable(o) || ['delivered', 'cancelled'].includes(o.status)} onClick={() => setAsg(o.id)}>{can("assign") ? <RefreshCw size={14} /> : <Lock size={13} />}{o.riderId ? "Reassign rider" : "Assign rider"}</button>
       <button className="bt r" disabled={!can("refund")} onClick={() => refund(o.id, o.amt)}>{can("refund") ? <Undo2 size={14} /> : <Lock size={13} />}Refund</button></div>
     {(!can("chat") || !can("assign")) && <div className="xs mu" style={{ marginTop: 10 }}>Locked buttons show what your current role cannot do. Switch role in Preview as to compare.</div>}</div>;
   /* ── navigation ── */
@@ -560,8 +585,8 @@ export default function OpsApp() {
   const supply = ZN.map((z) => [z, riders.filter((r) => r.zone === z && r.st === "online").length, 2]);
   const zs = (z) => zc.zones.find((x) => x.n === z);
   const sides = {
-    live: <><SW title="Hot zones now">{[["Wuse 2", 92, "High demand"], ["Maitama", 71, "Rising"], ["Garki", 48, "Steady"]].map(([a, p, b]) => <Bar key={a} a={a} p={p} r={b} />)}</SW><SW title="Service levels"><Rk a="On time" b="94%" /><Rk a="Avg delivery" b="27 min" /><Rk a="Cancelled" b="2.1%" /></SW><SW title="Right now"><Rk a="Riders online" b={riders.filter((r) => r.st === "online" || r.st === "delivering").length} /><Rk a="Open tickets" b={openT} /></SW></>,
-    dispatch: <><SW title="Rider supply by zone">{supply.map(([z, n, need]) => <Bar key={z} a={z} p={n / need * 100} r={n + " free"} />)}</SW><SW title="Assignment speed"><Rk a="Avg time to assign" b="48 sec" /><Rk a="Unassigned now" b={orders.filter((x) => !x.rider).length} /></SW></>,
+    live: <><SW title="Order flow">{[["Placed", "placed"], ["Preparing", "preparing"], ["Ready", "ready"], ["On the way", "on_the_way"], ["Delivered", "delivered"], ["Cancelled", "cancelled"]].map(([label, status]) => <Rk key={status} a={label} b={orders.filter((order) => order.status === status).length} />)}</SW><SW title="Delivery queue"><Rk a="Active orders" b={activeOrders.length} /><Rk a="Waiting for rider" b={unassignedOrders.length} /><Rk a="Past estimated ETA" b={overdueOrders.length} /><Rk a="Registered rider accounts" b={riderProfiles.length} /></SW></>,
+    dispatch: <><SW title="Queue status"><Rk a="Waiting for rider" b={unassignedOrders.length} /><Rk a="Active assignments" b={activeOrders.length - unassignedOrders.length} /><Rk a="Registered rider accounts" b={riderProfiles.length} /></SW></>,
     riders: <><SW title="Rider snapshot"><Rk a="Online or delivering" b={riders.filter((r) => r.st === "online" || r.st === "delivering").length} /><Rk a="Pending approval" b={pendR} /><Rk a="Suspended" b={riders.filter((r) => r.st === "suspended").length} /></SW><SW title="Top this week">{[...riders].sort((a, b) => b.week - a.week).slice(0, 3).map((r, i) => <div key={r.id} className="rk"><span style={{ width: 22 }}>{["🥇", "🥈", "🥉"][i]}</span><span className="fl b">{r.n}</span><span className="mu">{r.week}</span></div>)}</SW><SW title="Watch list">{riders.filter((r) => r.strikes > 0 && r.st !== "suspended").map((r) => <Rk key={r.id} a={r.n} b={r.strikes + " strike" + (r.strikes > 1 ? "s" : "")} />)}</SW></>,
     vendors: <><SW title="Vendor snapshot"><Rk a="Open now" b={vends.filter((v) => v.st === "open").length} /><Rk a="Paused" b={vends.filter((v) => v.st === "paused").length} /><Rk a="Awaiting approval" b={vends.filter((v) => v.st === "pending").length} /></SW><SW title="Busiest today">{[...vends].sort((a, b) => b.orders - a.orders).slice(0, 3).map((v) => <Rk key={v.id} a={v.n} b={v.orders + " orders"} />)}</SW><SW title="Trending in Abuja"><Rk a="🍲 Jollof rice" b="↑ 18%" /><Rk a="🍢 Suya" b="↑ 12%" /><Rk a="🇬🇭 Ghanaian meals" b="↑ 24%" /></SW></>,
     customers: <><SW title="Customer snapshot"><Rk a="New this week" b="318" /><Rk a="Flagged" b={custs.filter((c) => c.st === "flagged").length} /><Rk a="Repeat rate" b="68%" /></SW><SW title="Top spenders">{[...custs].sort((a, b) => b.spent - a.spent).slice(0, 3).map((c) => <Rk key={c.id} a={c.n} b={money(c.spent)} />)}</SW><SW title="Refund watch">{[...custs].sort((a, b) => b.refunds - a.refunds).slice(0, 2).map((c) => <Rk key={c.id} a={c.n} b={c.refunds + " refunds"} />)}</SW></>,
@@ -600,14 +625,15 @@ export default function OpsApp() {
     <Shell tkeys={TAB} onMore={() => setMore(true)} letter="O" role="Operations" nav={nav} mnav={mnav} tab={tab} setTab={setTab} mw={1100} convs={convs} notifs={NOTIFS} say={say} thread={{ canWrite: true, canCall: true, joinable: false }} who={"Viewing as " + RN} onProfile={() => setTab("me")} top={rolebar} side={sides[tab]}
       foot={<><div className="lb">Viewing as</div><div className="b" style={{ fontSize: 16, marginTop: 2 }}>{RN}</div><div className="xs mu" style={{ marginTop: 2 }}>{perms[role].length} of {PERMS.length} permissions</div></>}>
       {tab === "live" && <>
-        <div className="kp k4"><div><b>{orders.length * 32}</b><span className="xs mu">Active orders</span></div><div><b>{riders.filter((r) => r.st === "online" || r.st === "delivering").length * 4}</b><span className="xs mu">Riders online</span></div><div><b>{attn}</b><span className="xs mu">Need attention</span></div><div><b>₦38k</b><span className="xs mu">Airtime saved</span></div></div>
+        <div className="kp k4"><div><b>{activeOrders.length}</b><span className="xs mu">Active orders</span></div><div><b>{riderProfiles.length}</b><span className="xs mu">Rider accounts</span></div><div><b>{attn}</b><span className="xs mu">Need attention</span></div><div><b>{unassignedOrders.length}</b><span className="xs mu">Need a rider</span></div></div>
         <div className="split"><div><div className="tbar" style={{ marginBottom: 10 }}><Drop label="Show" value={fl} options={[["all", "", "All orders"], ["late", "", "Late"], ["norider", "", "No rider"]]} onPick={setFl} /></div>
-          {shown.map((x) => <button key={x.id} className={cn("oi", sel === x.id && "on")} onClick={() => { setSel(x.id); if (window.innerWidth < 1480) setDet(true); }}><div className="row"><b className="fl">{x.id}</b>{flag(x.flag)}</div><div className="xs mu tr">{x.vend} → {x.cust}</div><div className="st">{STAGES.map((s, i) => <i key={s} className={i < x.st ? "d" : i === x.st ? "n" : ""} />)}</div><div className="xs mono ac">{STAGES[x.st]}</div></button>)}{!shown.length && <div className="cd mu" style={{ textAlign: "center" }}>Nothing matches.</div>}</div>
+          {shown.map((x) => <button key={x.id} className={cn("oi", sel === x.id && "on")} onClick={() => { setSel(x.id); if (window.innerWidth < 1480) setDet(true); }}><div className="row"><b className="fl">{x.id}</b>{flag(x)}</div><div className="xs mu tr">{x.vend} → {x.cust}</div><div className="st">{STAGES.map((s, i) => <i key={s} className={i < x.st ? "d" : i === x.st ? "n" : ""} />)}</div><div className="xs mono ac">{orderStatusLabel(x)}</div></button>)}{!shown.length && <div className="cd mu" style={{ textAlign: "center" }}>Nothing matches.</div>}</div>
           <div className="dsk">{panel()}</div></div></>}
       {tab === "dispatch" && <>
         <p className="mu">{orders.filter((x) => !x.rider).length} orders waiting for a rider. Tap one to assign.</p>
-        {orders.filter((x) => !x.rider).map((x) => <div key={x.id} className="cd row"><div className="fl"><div className="b">{x.id} · {x.vend}</div><div className="xs mu">{x.cust}</div></div><button className="bt p s" onClick={() => setAsg(x.id)}>Assign</button></div>)}
+        {orders.filter((x) => !x.riderId && !['delivered', 'cancelled'].includes(x.status)).map((x) => <div key={x.id} className="cd row"><div className="fl"><div className="b">{x.id} · {x.vend}</div><div className="xs mu">{x.cust}</div></div><button className="bt p s" onClick={() => setAsg(x.id)}>Assign</button></div>)}
         <div className="lb">Riders</div><div className="cd lst" style={{ padding: "2px 16px" }}>{riders.filter((r) => r.st === "online" || r.st === "delivering").map((r) => <div key={r.id} className="rk"><Bike size={18} className="ac" /><div className="fl"><div className="b">{r.n}</div><div className="xs mu">{r.zone} · {dist(r.id)} km from vendor</div></div><span className={cn("ch", r.st === "online" ? "g" : "")}>{r.st === "online" ? "Available" : "On delivery"}</span></div>)}</div></>}
+      {['riders', 'vendors', 'customers', 'bonus', 'support', 'fees', 'money', 'team', 'audit'].includes(tab) && <DemoNotice>Sample data only. Changes in this section are stored in this browser session and are not persisted or enforced by the backend.</DemoNotice>}
       {tab === "riders" && section("r")}
       {tab === "vendors" && section("v")}
       {tab === "customers" && section("c")}
