@@ -1,10 +1,48 @@
-import { ReactNode, useEffect, useState } from 'react';
-import { getCurrentProfile, isSupabaseConfigured, signOut, startOAuthSignIn, supabase, type AppRole, type OAuthProvider } from '@zaradrop/core';
+import { Component, createContext, ErrorInfo, ReactNode, useContext, useEffect, useState } from 'react';
+import { getCurrentProfile, isSupabaseConfigured, signOut, startOAuthSignIn, supabase, type AppRole, type OAuthProvider, type Profile } from '@zaradrop/core';
 import { SiFacebook, SiGoogle, SiInstagram, SiTiktok, SiX } from '@icons-pack/react-simple-icons';
 
 type AuthGateProps = { role: AppRole; children: ReactNode };
 
 type GateState = 'loading' | 'signed-out' | 'ready' | 'wrong-role' | 'error';
+type AuthenticatedProfileContextValue = {
+  profile: Profile | null;
+  updateProfile: (profile: Profile) => void;
+};
+const AuthenticatedProfileContext = createContext<AuthenticatedProfileContextValue>({ profile: null, updateProfile: () => {} });
+
+export function useAuthenticatedProfile() {
+  return useContext(AuthenticatedProfileContext).profile;
+}
+
+export function useUpdateAuthenticatedProfile() {
+  return useContext(AuthenticatedProfileContext).updateProfile;
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Authenticated app failed to render.', error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+
+    return <main className="auth-page"><section className="auth-frame" style={{ minHeight: 0, maxWidth: 640 }}>
+      <div className="auth-main">
+        <h2>We could not open the app</h2>
+        <p className="auth-copy">Your account is signed in, but the app hit an error while loading.</p>
+        <p className="auth-message" role="alert">{this.state.error.message || 'Unexpected app error.'}</p>
+        <button className="auth-submit" type="button" onClick={() => window.location.reload()}>Reload app</button>
+      </div>
+    </section></main>;
+  }
+}
 
 const roleNames: Record<AppRole, string> = {
   customer: 'Customer',
@@ -36,8 +74,17 @@ function clearOAuthTokensFromUrl() {
   window.history.replaceState(window.history.state, document.title, window.location.pathname + window.location.search);
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function AuthGate({ role, children }: AuthGateProps) {
   const [state, setState] = useState<GateState>('loading');
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [busy, setBusy] = useState<OAuthProvider | null>(null);
   const [message, setMessage] = useState('');
 
@@ -52,10 +99,11 @@ export function AuthGate({ role, children }: AuthGateProps) {
       try {
         const current = await getCurrentProfile();
         if (!active) return;
+        setProfile(current);
         setState(current ? (current.role === role ? 'ready' : 'wrong-role') : 'signed-out');
       } catch (error) {
         if (!active) return;
-        setMessage(error instanceof Error ? error.message : 'Could not load your account.');
+        setMessage(getErrorMessage(error, 'Could not load your account.'));
         setState('error');
       } finally {
         clearOAuthTokensFromUrl();
@@ -64,6 +112,7 @@ export function AuthGate({ role, children }: AuthGateProps) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
+        setProfile(null);
         setState('signed-out');
         return;
       }
@@ -74,10 +123,13 @@ export function AuthGate({ role, children }: AuthGateProps) {
     void supabase.auth.getSession().then(({ data, error }) => {
       if (error) throw error;
       if (data.session) return resolveProfile();
-      if (active) setState('signed-out');
+      if (active) {
+        setProfile(null);
+        setState('signed-out');
+      }
     }).catch((error: unknown) => {
       if (!active) return;
-      setMessage(error instanceof Error ? error.message : 'Could not check your session.');
+      setMessage(getErrorMessage(error, 'Could not check your session.'));
       setState('error');
     });
 
@@ -105,7 +157,7 @@ export function AuthGate({ role, children }: AuthGateProps) {
     setState('signed-out');
   };
 
-  if (isSupabaseConfigured && state === 'ready') return <>{children}</>;
+  if (isSupabaseConfigured && state === 'ready') return <AuthenticatedProfileContext.Provider value={{ profile, updateProfile: setProfile }}><AppErrorBoundary>{children}</AppErrorBoundary></AuthenticatedProfileContext.Provider>;
 
   const configured = isSupabaseConfigured;
   const identity = roleIdentity[role];

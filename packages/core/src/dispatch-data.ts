@@ -9,6 +9,18 @@ export interface Profile {
   id: string;
   role: AppRole;
   display_name: string;
+  email?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface CustomerAddress {
+  id: string;
+  user_id: string;
+  label: string;
+  address: string;
+  country_code: string;
+  is_default: boolean;
+  created_at: string;
 }
 
 export interface VendorRecord {
@@ -69,6 +81,8 @@ export interface RiderPoolOrder {
   delivery_address: string;
   customer_note: string;
   currency: string;
+  payment_method: 'cash_on_delivery' | 'paystack';
+  payment_status: 'not_required' | 'pending' | 'paid' | 'failed';
   total: number;
   delivery_fee: number;
   eta_minutes: number;
@@ -82,13 +96,116 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   if (userError) throw userError;
   if (!user) return null;
 
+  const { data, error } = await client.rpc('ensure_current_profile');
+  if (error) throw error;
+  if (!data) return null;
+
+  const current = data as unknown as Profile;
+  const userMetadata = user.user_metadata as Record<string, unknown>;
+  const metadataName = [userMetadata.full_name, userMetadata.name, userMetadata.display_name]
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  return {
+    ...current,
+    display_name: current.display_name || metadataName || user.email?.split('@')[0] || 'Customer',
+    email: user.email ?? null
+  };
+}
+
+export async function updateCurrentProfile(updates: { display_name?: string; avatar_url?: string | null }): Promise<Profile> {
+  const profileUpdates: { display_name?: string; avatar_url?: string | null } = {};
+  if (updates.display_name !== undefined) {
+    const normalizedName = updates.display_name.trim();
+    if (!normalizedName || normalizedName.length > 80) {
+      throw new Error('Display name must be between 1 and 80 characters.');
+    }
+    profileUpdates.display_name = normalizedName;
+  }
+  if (updates.avatar_url !== undefined) profileUpdates.avatar_url = updates.avatar_url;
+  if (!Object.keys(profileUpdates).length) throw new Error('No profile changes were provided.');
+
+  const client = requireSupabase();
+  const { data: { user }, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error('You must be signed in to update your profile.');
+
   const { data, error } = await client
     .from('profiles')
-    .select('id, role, display_name')
+    .update(profileUpdates)
     .eq('id', user.id)
+    .select('id, role, display_name, avatar_url')
     .single();
   if (error) throw error;
-  return data as Profile;
+  return { ...data, email: user.email ?? null } as Profile;
+}
+
+export async function listCustomerAddresses(): Promise<CustomerAddress[]> {
+  const { data, error } = await requireSupabase()
+    .from('customer_addresses')
+    .select('id, user_id, label, address, country_code, is_default, created_at')
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as CustomerAddress[];
+}
+
+export async function saveCustomerAddress(input: { label: string; address: string; countryCode: string; makeDefault?: boolean }) {
+  const label = input.label.trim();
+  const address = input.address.trim();
+  if (!label || !address) throw new Error('Enter a label and delivery address.');
+
+  const { data, error } = await requireSupabase().rpc('save_customer_address', {
+    p_label: label,
+    p_address: address,
+    p_country_code: input.countryCode,
+    p_make_default: Boolean(input.makeDefault)
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function updateCustomerAddress(addressId: string, input: { label: string; address: string; countryCode: string }) {
+  const label = input.label.trim();
+  const address = input.address.trim();
+  if (!label || !address) throw new Error('Enter a label and delivery address.');
+
+  const { error } = await requireSupabase()
+    .from('customer_addresses')
+    .update({ label, address, country_code: input.countryCode })
+    .eq('id', addressId);
+  if (error) throw error;
+}
+
+export async function setDefaultCustomerAddress(addressId: string) {
+  const { error } = await requireSupabase().rpc('set_default_customer_address', { p_address_id: addressId });
+  if (error) throw error;
+}
+
+export async function deleteCustomerAddress(addressId: string) {
+  const { error } = await requireSupabase().from('customer_addresses').delete().eq('id', addressId);
+  if (error) throw error;
+}
+
+export async function uploadProfileAvatar(file: File): Promise<Profile> {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) throw new Error('Choose a JPEG, PNG, or WebP image.');
+  if (file.size > 2 * 1024 * 1024) throw new Error('Profile photos must be 2 MB or smaller.');
+
+  const client = requireSupabase();
+  const { data: { user }, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error('You must be signed in to upload a profile photo.');
+
+  const objectPath = `${user.id}/avatar`;
+  const { error: uploadError } = await client.storage.from('profile-avatars').upload(objectPath, file, {
+    cacheControl: '3600',
+    contentType: file.type,
+    upsert: true
+  });
+  if (uploadError) throw uploadError;
+
+  const { data } = client.storage.from('profile-avatars').getPublicUrl(objectPath);
+  const avatarUrl = `${data.publicUrl}?v=${Date.now()}`;
+  return updateCurrentProfile({ avatar_url: avatarUrl });
 }
 
 export async function startOAuthSignIn(provider: OAuthProvider, redirectTo: string) {
@@ -200,6 +317,26 @@ export async function listAvailableRiderOrders(): Promise<RiderPoolOrder[]> {
   return (data ?? []) as RiderPoolOrder[];
 }
 
+export async function getRiderAvailability(): Promise<boolean> {
+  const client = requireSupabase();
+  const { data: { user }, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!user) return false;
+
+  const { data, error } = await client
+    .from('rider_presence')
+    .select('is_available')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.is_available ?? false;
+}
+
+export async function setRiderAvailability(isAvailable: boolean) {
+  const { error } = await requireSupabase().rpc('set_rider_availability', { p_is_available: isAvailable });
+  if (error) throw error;
+}
+
 export async function listRiderOrders(): Promise<OrderRecord[]> {
   const client = requireSupabase();
   const { data: { user }, error: userError } = await client.auth.getUser();
@@ -240,6 +377,20 @@ export async function createOwnedVendor(input: Omit<VendorRecord, 'id' | 'is_act
   const { data, error } = await client
     .from('vendors')
     .insert({ ...input, owner_id: user.id, is_active: false })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id as string;
+}
+
+export async function updateOwnedVendor(vendorId: string, input: Partial<Pick<VendorRecord, 'name' | 'description' | 'kind' | 'category' | 'emoji' | 'country_code' | 'currency' | 'pickup_address' | 'delivery_fee' | 'prep_minutes'>>) {
+  if (input.delivery_fee !== undefined && input.delivery_fee < 0) throw new Error('Delivery fee cannot be negative.');
+  if (input.prep_minutes !== undefined && input.prep_minutes < 1) throw new Error('Prep time must be at least one minute.');
+
+  const { data, error } = await requireSupabase()
+    .from('vendors')
+    .update(input)
+    .eq('id', vendorId)
     .select('id')
     .single();
   if (error) throw error;

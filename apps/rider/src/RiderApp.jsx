@@ -1,7 +1,7 @@
 import { Fragment, lazy, Suspense, useState, useEffect, useRef, useContext, createContext } from "react";
 import { EyeOff, User, Search, Star, Clock, MapPin, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, BarChart3, ArrowDownLeft, ArrowUpRight, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Bike, Store, FileCheck, Zap, Trophy, Share2, Crown, Lock, Eye, Radio, Pencil, Menu, Package, Route, Timer, KeyRound, Info, Trash2 } from "lucide-react";
-import { claimRiderOrder, listAvailableRiderOrders, listOrderMessages, listRiderOrders, sendOrderMessage, setRiderOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
-import { DemoNotice, Timeline } from "@zaradrop/ui";
+import { claimRiderOrder, getRiderAvailability, listAvailableRiderOrders, listOrderMessages, listRiderOrders, sendOrderMessage, setRiderAvailability, setRiderOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
+import { DemoNotice, ProfileEditor, Timeline, useAuthenticatedProfile } from "@zaradrop/ui";
 import ActiveDelivery from "./sections/orders/ActiveDelivery.jsx";
 
 /* ═════════ DESIGN SYSTEM (shared by all four Dispatch apps) ═════════ */
@@ -180,8 +180,8 @@ function useModal(onClose) {
 }
 function useToast() { const [t, s] = useState(""); useEffect(() => { if (!t) return; const x = setTimeout(() => s(""), 2200); return () => clearTimeout(x); }, [t]); return [t, s]; }
 const Toast = ({ t }) => (t ? <Portal><div className="toast" role="status">{t}</div></Portal> : null);
-function Av({ id, s = 40, on }) { const p = PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1] }}>{p.n[0]}{on && <i />}</span>; }
-const Tgl = ({ on, set, label, big }) => <button className={cn("tgl", big && "big", on && "on")} role="switch" aria-checked={!!on} aria-label={label} onClick={set} />;
+function Av({ id, s = 40, on }) { const profile = useAuthenticatedProfile(); const p = id === "me" && profile ? { ...PPL.me, n: profile.display_name } : PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1], overflow: "hidden" }}>{id === "me" && profile?.avatar_url ? <img src={profile.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : p.n[0]}{on && <i />}</span>; }
+const Tgl = ({ on, set, label, big, disabled }) => <button className={cn("tgl", big && "big", on && "on")} role="switch" aria-checked={!!on} aria-label={label} onClick={set} disabled={disabled} />;
 const Rw = ({ t, d, children }) => <div className="rk"><div className="fl"><div className="b">{t}</div>{d && <div className="xs mu">{d}</div>}</div>{children}</div>;
 function ThemeSwitch({ th }) { return <div className="seg" role="radiogroup" aria-label="Theme">{[["dark", "Dark", Moon], ["light", "Light", Sun], ["auto", "Auto", Monitor]].map(([k, l, I]) => <button key={k} role="radio" aria-checked={th.theme === k} className={th.theme === k ? "on" : ""} onClick={() => th.setTheme(k)}><I size={14} />{l}</button>)}</div>; }
 const SW = ({ title, children, act }) => <div className="cd"><div className="row" style={{ marginBottom: 8 }}><span className="lb fl">{title}</span>{act}</div>{children}</div>;
@@ -205,7 +205,8 @@ function Call({ peer, incoming, onEnd, onChat, note }) {
 /* Thread: always a full-screen layer above everything (nav included), same as a call. */
 function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true, canCall = true, onSend, joinable, inline, onEsc }) {
   useModal(inline ? (onEsc || (() => {})) : onClose);
-  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, (orderId ? [] : SEED[p] || []).map((x) => ({ me: 0, x, t: "2m" }))]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
+  const canSend = canWrite && Boolean(orderId);
+  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, []]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
   useEffect(() => { setCur(start); }, [start]);
   useEffect(() => {
     if (!orderId || !supabase) return;
@@ -225,22 +226,18 @@ function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true
   }, [orderId, cur]); // eslint-disable-line
   useEffect(() => { end.current && end.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [log, ty, cur]);
   const send = async (x) => {
-    x = x.trim(); if (!x || !canWrite) return; setV(""); setError("");
-    if (orderId) {
-      try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
-      catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
-      return;
-    }
-    setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { me: 1, x, t: "now" }] })); onSend && onSend(cur); setTy(true); const w = cur; setTimeout(() => { setTy(false); setLog((l) => ({ ...l, [w]: [...(l[w] || []), { me: 0, x: "Got it 👍", t: "now" }] })); }, 1500);
+    x = x.trim(); if (!x || !canSend) return; setV(""); setError("");
+    try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
   };
   const join = () => { setJoined(true); setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { sys: 1, x: "Support joined this conversation" }] })); onSend && onSend(cur, "join"); };
   const body = <>
-    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r} · online{canWrite ? " · replies instantly" : " · read-only"}</div></div>
+    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r}{canSend ? " · order chat" : " · unavailable"}</div></div>
       <button className="ib g" aria-label="Call" disabled={!canCall} onClick={() => onCall(cur)}>{canCall ? <Phone size={18} /> : <Lock size={15} />}</button>{!inline && <button className="ib" aria-label="Close chat" onClick={onClose}><X size={18} /></button>}</div>
     {!inline && peers.length > 1 && <div className="pt">{peers.map((p) => <button key={p} className={cur === p ? "on" : ""} onClick={() => setCur(p)}><Av id={p} s={24} />{PPL[p].r}</button>)}</div>}
-    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canWrite ? "free, no airtime" : "read-only for your role"}</div>
+    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canSend ? "order conversation" : "Support chat is not connected."}</div>
       {(log[cur] || []).map((m, i) => m.sys ? <div key={i} className="sy">{m.x}</div> : <div key={i} className={cn("mg", m.me && "me")}>{m.x}<small>{m.t}{m.me ? " · ✓✓" : ""}</small></div>)}{ty && <div className="ty"><i /><i /><i /></div>}{error && <p className="xs" role="alert">{error}</p>}<div ref={end} /></div>
-    {!canWrite ? <div className="pl w ro"><Lock size={15} />Your role can read this thread but not write in it.</div> : <>
+    {!canSend ? <div className="pl w ro"><Lock size={15} />Only order-linked messages are currently stored. General support messaging is unavailable.</div> : <>
       {joinable && !joined && <div style={{ padding: "8px max(12px,calc((100% - 760px)/2)) 0", flex: "none" }}><button className="bt s w" onClick={join}><Radio size={13} />Join conversation (they will see "Support joined")</button></div>}
       <div className="qr">{(QR[PPL[cur].r] || []).map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}<button onClick={() => send("📍 Shared my live location")}><Navigation size={12} style={{ verticalAlign: -2 }} /> Share location</button></div>
       <div className="cb"><input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(v)} placeholder={"Message " + PPL[cur].n.split(" ")[0] + "…"} aria-label="Message" /><button className="ib g" aria-label="Send" onClick={() => send(v)}><Send size={17} /></button></div></>}
@@ -372,20 +369,22 @@ function Full({ title, onClose, foot, up, dlg, children }) {
 
 /* ═════════ Shell: header (profile · notifications · messages · support), rails, bottom nav, trending sidebar ═════════ */
 function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side, mw = 780, convs, notifs, say, thread, onProfile, who, top, children }) {
+  const profile = useAuthenticatedProfile();
+  const profileName = profile?.display_name || profile?.email || "Account";
   const [bell, setBell] = useState(false), [inb, setInb] = useState(false), [sp, setSp] = useState(false), [nun, setNun] = useState(notifs.filter((n) => n.u).length), [mread, setMread] = useState(false);
   const mun = mread ? 0 : convs.reduce((a, c) => a + (c.un || 0), 0);
   const item = (it, x) => <button key={it.k} className={cn("ni", tab === it.k && "on", it.lk && "lk", x)} onClick={() => (it.go ? it.go() : setTab(it.k))} aria-label={it.l} aria-current={tab === it.k ? "page" : undefined}><span className="ic"><span className="iw">{it.lk ? <Lock size={19} /> : <it.I size={21} />}{it.b ? <span className="bdg">{it.b}</span> : null}</span></span><span className="lt">{it.l}</span></button>;
   return <>
     <div className="lay"><nav className="nv" aria-label="Main"><div className="brand"><span className="lg">{letter}</span><div><b>Dispatch</b><span className="lb">{role}</span></div></div>{nav.map((it) => item(it, tkeys && !tkeys.includes(it.k) ? "xt" : ""))}{tkeys && <button className={cn("ni mr", !tkeys.includes(tab) && "on")} onClick={onMore} aria-label="More sections"><span className="ic"><span className="iw"><Menu size={21} />{nav.some((x) => !tkeys.includes(x.k) && x.b) ? <span className="bdg">{nav.filter((x) => !tkeys.includes(x.k)).reduce((s, x) => s + (x.b || 0), 0) || null}</span> : null}</span></span><span className="lt">More</span></button>}{foot && <div className="nvf">{foot}</div>}</nav>
       <main className="mn" style={{ "--mw": mw + "px" }}>
-        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{PPL.me.n}</b><span>{who}</span></span></button><span className="fl" />
+        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{profileName}</b><span>{who}</span></span></button><span className="fl" />
           <button className="ib" aria-label="Notifications" onClick={() => { setBell(true); setNun(0); }}><Bell size={19} />{nun ? <span className="bdg">{nun}</span> : null}</button>
           <button className="ib" aria-label="Messages" onClick={() => { setInb(true); setMread(true); }}><MessageSquareText size={19} />{mun ? <span className="bdg">{mun}</span> : null}</button>
           <button className="ib" aria-label="Support" onClick={() => setSp(true)}><Headset size={19} /></button></header>
         {top}<div className="col">{children}</div></main>
       {side && <aside className="sd" aria-label="Trending">{side}</aside>}</div>
     <nav className="bn" aria-label="Main">{(mnav || nav).map((it) => item(it))}</nav>
-    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>)}</Sheet>}
+    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.length ? notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>) : <p className="mu">No notifications yet.</p>}</Sheet>}
     {inb && <Comms mode="inbox" convs={convs} onClose={() => setInb(false)} say={say} thread={thread} />}
     {sp && <Comms mode="support" convs={[{ p: "sup" }]} onClose={() => setSp(false)} say={say} order="Support desk" thread={{ ...thread, canWrite: true, canCall: true, joinable: false }} />}
   </>;
@@ -399,14 +398,12 @@ function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side
 const money = (n) => "₦" + Math.round(n).toLocaleString();
 const PPL = { me: { n: "Tunde Bako", r: "Rider", g: ["#60a5fa", "#a78bfa"] }, cust: { n: "Ada O.", r: "Customer", g: ["#22d3ee", "#6366f1"] }, vendor: { n: "Mama Put Kitchen", r: "Vendor", g: ["#fb923c", "#f43f5e"] }, sup: { n: "Dispatch Support", r: "Support", g: ["#c4b5fd", "#a78bfa"] } };
 const QR = { Customer: ["I'm outside", "I'm at the gate", "Please come down"], Vendor: ["Is it ready?", "I'm 2 min away", "Wrong order?"], Support: ["Road blocked", "Customer unreachable", "Bike issue"] };
-const SEED = { cust: ["Please call at the gate, don't ring the bell."], vendor: ["Order is almost ready."], sup: ["Hi Tunde, ride safe. Message us any time."] };
 const STEPS = [["Head to vendor", "Confirm pickup"], ["Heading to customer", "I've arrived"], ["At customer's door", "Complete delivery"]];
 const CFG = { base: 15000, salt: 3, zero: 0, avg: 1850, step: 10 }, CFT = { base: 9, salt: 11, zero: 0.12, avg: 1, step: 1 };
 const NAMES = ["Kemi", "Musa", "Ifeanyi", "Bisi", "Sani", "Chidi", "Hauwa", "Emeka", "Fatima", "Segun", "Ngozi", "Dayo"], GR = [["#60a5fa", "#a78bfa"], ["#fb923c", "#f43f5e"], ["#22d3ee", "#6366f1"], ["#c4b5fd", "#a78bfa"], ["#fbbf24", "#f97316"]];
 const rnd = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 const LB = (p) => NAMES.map((n, i) => ({ n: n + " " + String.fromCharCode(65 + (i * 7) % 26) + ".", km: Math.round((p === "W" ? 70 : 260) * (0.55 + rnd(i + 31) * 0.9)), o: Math.round((p === "W" ? 24 : 90) * (0.55 + rnd(i + 57) * 0.9)), g: GR[i % 5] }));
 const HOT = [["Wuse 2", 92, "×1.4"], ["Maitama", 78, "×1.2"], ["Garki", 55, ""], ["Jabi", 41, ""]];
-const NOTIFS = [{ e: "⚡", t: "Peak hours boost", d: "Dinner rush in Wuse 2 pays ×1.4 until 9 PM", w: "5m", u: 1 }, { e: "🏆", t: "You moved up", d: "You're now #4 on this week's leaderboard", w: "1h", u: 1 }, { e: "💸", t: "Cash out sent", d: "₦38,200 reached GTBank ···· 4417", w: "Yesterday" }, { e: "📄", t: "Document expiring", d: "Helmet photo expires in 12 days", w: "2d" }];
 const riderOrderView = (order) => ({
   id: "#DL-" + order.order_number,
   dbId: order.id,
@@ -428,14 +425,20 @@ const riderOrderView = (order) => ({
 });
 
 export default function RiderApp() {
-  const th = useThemeState(), [toast, say] = useToast();
-  const [tab, setTab] = useState("jobs"), [on, setOn] = useState(true), [orders, setOrders] = useState([]), [act, setAct] = useState(null), [step, setStep] = useState(0), [det, setDet] = useState(null), [ring, setRing] = useState(null);
-  const [cash, setCash] = useState(false), [bal, setBal] = useState(0), [day, setDay] = useState({ e: 0, n: 0, km: 0 });
-  const [accts, setAccts] = useState([{ id: "a1", bank: "GTBank", last: "4417", name: "TUNDE BAKO", def: 1 }, { id: "a2", bank: "Opay", last: "1203", name: "TUNDE BAKO", def: 0 }]), [payM, setPayM] = useState(false), [sch, setSch] = useState("instant"), [goal, setGoal] = useState(18000), [pays, setPays] = useState([["Cash out", "Yesterday", 38200], ["Cash out", "Mon", 52400], ["Cash out", "Last Fri", 47100]]), [prefs, setPrefs] = useState({ snd: 1, idle: 0, waze: 0, lb: 1 });
-  const [sub, setSub] = useState("i"), [lm, setLm] = useState("km"), [lp, setLp] = useState("W"), [setOpen, setSetOpen] = useState(false);
+  const th = useThemeState(), [toast, say] = useToast(), profile = useAuthenticatedProfile();
+  const [tab, setTab] = useState("jobs"), [on, setOn] = useState(false), [availabilityReady, setAvailabilityReady] = useState(false), [availabilitySaving, setAvailabilitySaving] = useState(false), [orders, setOrders] = useState([]), [act, setAct] = useState(null), [step, setStep] = useState(0), [det, setDet] = useState(null), [ring, setRing] = useState(null);
+  const [setOpen, setSetOpen] = useState(false);
   const refs = useRef([]), detR = useRef(null); detR.current = det;
   useEffect(() => {
     let active = true;
+    void getRiderAvailability().then((isAvailable) => {
+      if (active) {
+        setOn(isAvailable);
+        setAvailabilityReady(true);
+      }
+    }).catch((error) => {
+      if (active) say(error instanceof Error ? error.message : "Rider availability setup is required.");
+    });
     const refresh = async () => {
       try {
         const [pool, assigned] = await Promise.all([listAvailableRiderOrders(), listRiderOrders()]);
@@ -455,6 +458,23 @@ export default function RiderApp() {
       if (supabase) void supabase.removeChannel(channel);
     };
   }, []); // eslint-disable-line
+  const refreshQueue = async () => {
+    const available = await listAvailableRiderOrders();
+    setOrders(available.map(riderOrderView));
+  };
+  const toggleAvailability = async () => {
+    try {
+      setAvailabilitySaving(true);
+      await setRiderAvailability(!on);
+      setOn(!on);
+      await refreshQueue();
+      say(!on ? "You are online" : "You are offline");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not update your availability.");
+    } finally {
+      setAvailabilitySaving(false);
+    }
+  };
   const peers = step === 0 ? ["vendor", "cust", "sup"] : ["cust", "vendor", "sup"];
   const accept = async (o) => {
     if (act) { say("Finish your current job first"); return; }
@@ -494,48 +514,25 @@ export default function RiderApp() {
       say(error instanceof Error ? error.message : "Could not complete delivery.");
     }
   };
-  const share = (txt) => { if (navigator.share) navigator.share({ text: txt }).catch(() => {}); else if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => say("Copied · paste it anywhere"), () => say("Couldn't copy")); else say("Sharing isn't supported here"); };
-  const tog = (k, msg) => { setPrefs({ ...prefs, [k]: prefs[k] ? 0 : 1 }); say(msg + (prefs[k] ? " off" : " on")); };
-  /* leaderboard */
-  const rows = LB(lp).concat([{ n: "You", me: 1, km: Math.round((lp === "W" ? 96 : 360) + day.km - 31), o: (lp === "W" ? 27 : 104) + day.n - 7, g: PPL.me.g }]).sort((a, b) => b[lm] - a[lm]), myR = rows.findIndex((r) => r.me) + 1, lead = rows[0][lm], unit = lm === "km" ? " km" : " orders";
-  const myTxt = "🏁 I'm #" + myR + " on the Dispatch Abuja leaderboard " + (lp === "W" ? "this week" : "this month") + " with " + rows[myR - 1][lm] + unit + ". Ride safe!";
-  const Lrow = (r, i) => <div key={r.n} className={cn("rk", r.me && "me")}><span className="mono" style={{ width: 26, textAlign: "center", fontWeight: 700 }}>{i < 3 ? ["🥇", "🥈", "🥉"][i] : i + 1}</span><span className="av" style={{ "--s": "38px", "--g1": r.g[0], "--g2": r.g[1] }}>{r.n[0]}</span>
-    <div className="fl"><div className="b tr">{r.me ? (prefs.lb ? "You" : "You (hidden from others)") : r.n}</div><div className="pb" style={{ marginTop: 6, height: 6 }}><i style={{ width: r[lm] / lead * 100 + "%" }} /></div></div><b>{r[lm]}<span className="xs mu">{lm === "km" ? " km" : ""}</span></b></div>;
-  const da = accts.find((a) => a.def), dTxt = da ? da.bank + " ···· " + da.last : "no account yet";
-  const nav = [{ k: "jobs", l: "Jobs", I: Bike, b: orders.length && on ? orders.length : 0 }, { k: "earn", l: "Earnings", I: Wallet }, { k: "stats", l: "Insights", I: BarChart3 }, { k: "me", l: "Account", I: User }];
-  const convs = [...(act ? [{ p: "cust", last: "Please call at the gate…", t: "2m", un: 1 }, { p: "vendor", last: "Order is almost ready.", t: "4m" }] : []), { p: "sup", last: "Hi Tunde, ride safe.", t: "1h" }];
+  const nav = [{ k: "jobs", l: "Jobs", I: Bike, b: orders.length && on ? orders.length : 0 }, { k: "me", l: "Account", I: User }];
+  const convs = [];
   const Rk = ({ a, b }) => <div className="rk"><span className="fl b">{a}</span><span className="xs mu">{b}</span></div>;
-  const TIERS = [[5, 500], [10, 1500], [15, 3000], [20, 5000]], nt = TIERS.find((t) => day.n < t[0]) || TIERS[3];
-  const hot = <SW title="Demand hot spots">{HOT.map(([a, p, x]) => <div key={a} style={{ marginTop: 10 }}><div className="row xs"><span className="fl b">{a}</span>{x && <span className="ch g">{x}</span>}<span className="mu">{p}%</span></div><div className="pb" style={{ marginTop: 5 }}><i style={{ width: p + "%" }} /></div></div>)}</SW>;
   const sides = {
-    jobs: <>{hot}
-      <SW title="Best hours today"><Rk a="Lunch · 12–2 PM" b="High" /><Rk a="Dinner · 5–8 PM" b="Very high" /><Rk a="Late · 9–11 PM" b="Steady" /></SW>
-      <SW title="Ride tip"><p className="mu">Park near Wuse 2 shortly before 5 PM for faster pickups. Waiting at vendors is the biggest time loss.</p></SW></>,
-    earn: <>
-      <SW title="Today's bonus" act={<span className="ch g">{day.n} orders</span>}><div className="b" style={{ fontSize: 18 }}>{day.n >= 20 ? "All tiers unlocked" : (nt[0] - day.n) + " more for " + money(nt[1])}</div><div className="pb" style={{ margin: "8px 0 4px" }}><i style={{ width: Math.min(100, day.n / nt[0] * 100) + "%" }} /></div><div className="xs mu">Set by Operations · paid weekly</div></SW>
-      <SW title="Bonus tiers">{TIERS.map(([n, a]) => <div key={n} className="rk"><span className="fl">{n} orders</span><b className={day.n >= n ? "ac" : ""}>{money(a)}</b></div>)}</SW>
-      <SW title="Payout schedule"><Rk a="Cash out" b="Any time" /><Rk a="Bank arrival" b="Within minutes" /></SW></>,
-    stats: <>
-      <SW title="Top riders this week" act={<button className="xs ac b" onClick={() => setSub("l")}>See all</button>}>{LB("W").sort((a, b) => b.km - a.km).slice(0, 3).map((r, i) => <div key={r.n} className="rk"><span style={{ width: 22 }}>{["🥇", "🥈", "🥉"][i]}</span><span className="fl b">{r.n}</span><span className="mu">{r.km} km</span></div>)}</SW>
-      <SW title="Safe by design"><p className="xs mu">Leaderboards show distance and orders only. Never earnings, locations or contact details.</p></SW>
-      <SW title="Ride tip"><p className="mu">Riders who keep acceptance above 85% unlock the weekly bonus. Decline rarely.</p></SW></>,
+    jobs: <SW title="Live queue"><Rk a="Available orders" b={String(orders.length)} /><Rk a="Active delivery" b={act ? act.id : "None"} /><Rk a="Availability" b={on ? "Online" : "Offline"} /></SW>,
     me: <>
       <SW title="Stay safe"><Rk a="Wear a helmet" b="Always" /><Rk a="Night rides" b="Use lit roads" /><Rk a="Emergency" b="Support · header" /></SW>
       <SW title="Documents"><Rk a="Licence" b="Valid" /><Rk a="Vehicle papers" b="Valid" /><Rk a="Insurance" b="Renew in 41 days" /></SW></>,
   };
   const side = sides[tab];
   return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS}</style>
-    <Shell letter="R" role="Rider" nav={nav} tab={tab} setTab={setTab} mw={720} convs={convs} notifs={NOTIFS} say={say} who={on ? "Online · " + day.n + " trips today" : "Offline"} onProfile={() => setTab("me")} side={side}
-      foot={<><div className="lb">Today</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{money(day.e)}</div><div className="row xs mu" style={{ marginTop: 4 }}><span className="ch g">{on ? "Online" : "Offline"}</span>{day.n} trips</div></>}>
-      {tab === "jobs" && <DemoNotice>The job queue and order status are live. Availability, route map, distance, and fare figures are previews; GPS and rider payouts are not connected.</DemoNotice>}
-      {tab === "earn" && <DemoNotice>Earnings, cash-out accounts, history, and goals are preview data. No rider payout service is connected.</DemoNotice>}
-      {tab === "stats" && <DemoNotice>Trips, reliability, leaderboards, and badges are sample data and are not computed from your delivery history.</DemoNotice>}
-      {tab === "me" && <DemoNotice>Rider identity, documents, vehicle details, payout account, and settings are not yet loaded from or saved to your account.</DemoNotice>}
+    <Shell letter="R" role="Rider" nav={nav} tab={tab} setTab={setTab} mw={720} convs={convs} notifs={[]} say={say} who={on ? "Online" : "Offline"} onProfile={() => setTab("me")} side={side}
+      foot={<><div className="lb">Availability</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{on ? "Online" : "Offline"}</div><div className="xs mu" style={{ marginTop: 4 }}>{orders.length} available orders</div></>}>
+      {tab === "jobs" && !availabilityReady && <DemoNotice>Apply the rider-presence migration to enable availability and receive jobs.</DemoNotice>}
       {tab === "jobs" && <>
-        <div className="cd row"><div className="fl"><div className="lb">Status</div><h2 className="serif" style={{ fontSize: 24 }}>{on ? "You're online" : "You're offline"}</h2><div className="xs mu">{on ? "Orders near you appear below. Chat and calls are free." : "Go online to see orders."}</div></div><Tgl big on={on} label="Online" set={() => setOn(!on)} /></div>
-        <div className="kp"><div><b>{money(day.e)}</b><span className="xs mu">Today</span></div><div><b>{day.n}</b><span className="xs mu">Trips</span></div><div><b>{Math.round(day.km)} km</b><span className="xs mu">Distance</span></div></div>
+        <div className="cd row"><div className="fl"><div className="lb">Availability</div><h2 className="serif" style={{ fontSize: 24 }}>{on ? "You're online" : "You're offline"}</h2><div className="xs mu">{on ? "Available orders from the dispatch queue appear below." : "Go online to receive available orders."}</div></div><Tgl big on={on} label="Online" set={toggleAvailability} disabled={!availabilityReady || availabilitySaving} /></div>
+        <div className="kp"><div><b>{orders.length}</b><span className="xs mu">Available orders</span></div><div><b>{act ? 1 : 0}</b><span className="xs mu">Active deliveries</span></div><div><b>{act?.min ?? "—"}</b><span className="xs mu">ETA minutes</span></div></div>
         {on && act && <ActiveDelivery act={act} step={step} steps={STEPS} peers={peers} say={say} ring={ring} clearRing={() => setRing(null)} onNext={nextBtn} onDetails={() => setDet(act)} onSimulateCall={() => setRing("cust")} ContactBar={ContactBar} LiveMap={LiveMap} />}
-        {on && <><div className="lb">{orders.length ? orders.length + " order" + (orders.length > 1 ? "s" : "") + " waiting near you" : "No orders right now"}</div>
+        {on && <><div className="lb">{orders.length ? orders.length + " order" + (orders.length > 1 ? "s" : "") + " available" : "No orders right now"}</div>
           {orders.map((o) => <div key={o.id} className="cd"><div className="row"><span className="em">{o.e}</span><div className="fl"><div className="b tr" style={{ fontSize: 16 }}>{o.v}</div><div className="xs mu tr">{o.area} → {o.to}</div></div><b className="serif" style={{ fontSize: 22 }}>{money(o.fare + o.tip)}</b></div>
             <div className="row" style={{ margin: "12px 0", flexWrap: "wrap", gap: 6 }}><span className="ch"><MapPin size={11} />{o.pk} km to pickup</span><span className="ch"><Route size={11} />{o.km} km trip</span><span className="ch"><Clock size={11} />~{o.min} min</span>{o.tip > 0 && <span className="ch g">+{money(o.tip)} tip</span>}{o.req && <span className="ch g"><Star size={11} />Requested you</span>}</div>
             <div className="acts"><button className="bt" onClick={() => setDet(o)}><Info size={15} />Details</button><button className="bt p" disabled={!!act} onClick={() => accept(o)}><Check size={15} />Accept</button></div></div>)}
@@ -565,10 +562,10 @@ export default function RiderApp() {
           <div className="cd"><div className="lb">Top riders · {lp === "W" ? "this week" : "this month"}</div>{rows.slice(0, 10).map(Lrow)}{myR > 10 && <><div className="xs mu" style={{ textAlign: "center", padding: "6px 0" }}>· · ·</div>{Lrow(rows[myR - 1], myR - 1)}</>}</div>
           <div className="pl"><ShieldCheck size={16} className="ac" />Safe by design: only first name, distance and completed orders are shown. No earnings, bank details, phone numbers or live locations. You can hide yourself in Settings.</div></>}</>}
       {tab === "me" && <>
-        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>Tunde Bako</h2><div className="xs mu">Motorbike · KJA 221 AB</div></div><span className="ch g"><Star size={11} />4.9</span></div>
-        <div className="kp"><div><b>1,284</b><span className="xs mu">Trips</span></div><div><b>94%</b><span className="xs mu">Acceptance</span></div><div><b>99%</b><span className="xs mu">On time</span></div></div>
-        <div className="cd"><div className="lb">Payout account</div><div className="row" style={{ marginTop: 10 }}><span className="em sm"><Landmark size={20} className="ac" /></span><div className="fl"><div className="b">{dTxt}</div><div className="xs mu">{da ? da.name.split(" ").map((x) => x[0] + x.slice(1).toLowerCase()).join(" ") + " · default" : "Add an account to cash out"}</div></div><button className="bt s o" onClick={() => setPayM(true)}><Pencil size={13} />Manage</button></div></div>
-        <div className="cd"><div className="lb">Documents</div>{[["Driver's licence", "Verified"], ["Vehicle papers", "Verified"], ["Background check", "Verified"], ["Helmet photo", "Expires in 12 days"]].map(([k, v]) => <div key={k} className="rk"><FileCheck size={18} className="ac" /><span className="fl">{k}</span><span className={cn("ch", v === "Verified" ? "g" : "o")}>{v}</span></div>)}</div>
+        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>{profile?.display_name || "Rider"}</h2><div className="xs mu tr">{profile?.email || "Email unavailable"}</div><div className="xs mu">Rider account</div></div></div>
+        <ProfileEditor />
+        <div className="kp"><div><b>{act ? 1 : 0}</b><span className="xs mu">Active deliveries</span></div><div><b>{orders.length}</b><span className="xs mu">Available orders</span></div><div><b>Not connected</b><span className="xs mu">Payouts</span></div></div>
+        <div className="cd"><div className="lb">Rider details</div><p className="xs mu" style={{ marginTop: 8 }}>Vehicle, documents, ratings, and payout details are not stored in your profile yet.</p></div>
         <button className="setrow" onClick={() => setSetOpen(true)}><Settings size={20} className="ac" /><span className="fl">Settings</span><ChevronRight size={18} className="mu" /></button></>}
     </Shell>
     {det && <Full dlg title="Order details" onClose={() => setDet(null)} foot={!act || act.id !== det.id ? <div className="fb"><button className="bt p w xl" disabled={!!act} onClick={() => accept(det)}><Check size={20} />{act ? "Finish your current job first" : "Accept · " + money(det.fare + det.tip)}</button></div> : null}>
@@ -585,7 +582,7 @@ export default function RiderApp() {
       <div className="cd"><div className="lb">Riding</div>{[["snd", "Job sounds", "Loud tone when an order lands"], ["idle", "Auto offline", "Go offline after 20 min idle"], ["waze", "Open Waze for routes", "Otherwise your default maps app"]].map(([k, t, d]) => <Rw key={k} t={t} d={d}><Tgl on={prefs[k]} label={t} set={() => tog(k, t)} /></Rw>)}</div>
       <div className="cd"><div className="lb">Privacy</div><Rw t="Show me on the leaderboard" d="Others see your first name, km and orders only"><Tgl on={prefs.lb} label="Leaderboard" set={() => tog("lb", "Leaderboard visibility")} /></Rw></div>
       <div className="cd"><div className="lb">Help and support</div><div style={{ marginTop: 10 }}><ContactBar peers={["sup"]} say={say} /></div></div>
-      <SignOut say={say} who="Tunde Bako" /></Full>}
+      <SignOut say={say} who={profile?.display_name || profile?.email || "Rider"} /></Full>}
     <Toast t={toast} /></div></ThemeCtx.Provider>;
 }
 const MapboxOrderMap = lazy(() => import("../../../packages/ui/src/components/MapboxOrderMap").then((module) => ({ default: module.MapboxOrderMap })));

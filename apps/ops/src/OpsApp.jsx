@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
 import { assignOpsOrder, listOpsOrders, listOpsRiders, listOrderMessages, sendOrderMessage, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
-import { Timeline } from "@zaradrop/ui";
+import { ProfileEditor, Timeline, useAuthenticatedProfile } from "@zaradrop/ui";
 import { DemoNotice } from "@zaradrop/ui";
 import { EyeOff, Search, Clock, MapPin, Phone, PhoneOff, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, ArrowDownLeft, ArrowUpRight, Award, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Bike, Store, Ban, Users, Activity, Truck, ScrollText, Lock, Eye, RefreshCw, Undo2, UserCog, Radio, TriangleAlert, Gift, Menu, Ticket, Flag, Route, KeyRound, UserCheck, Trash2 } from "lucide-react";
 
@@ -180,7 +180,7 @@ function useModal(onClose) {
 }
 function useToast() { const [t, s] = useState(""); useEffect(() => { if (!t) return; const x = setTimeout(() => s(""), 2200); return () => clearTimeout(x); }, [t]); return [t, s]; }
 const Toast = ({ t }) => (t ? <Portal><div className="toast" role="status">{t}</div></Portal> : null);
-function Av({ id, s = 40, on }) { const p = PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1] }}>{p.n[0]}{on && <i />}</span>; }
+function Av({ id, s = 40, on }) { const profile = useAuthenticatedProfile(); const p = id === "me" && profile ? { ...PPL.me, n: profile.display_name } : PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1], overflow: "hidden" }}>{id === "me" && profile?.avatar_url ? <img src={profile.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : p.n[0]}{on && <i />}</span>; }
 const Tgl = ({ on, set, label, big }) => <button className={cn("tgl", big && "big", on && "on")} role="switch" aria-checked={!!on} aria-label={label} onClick={set} />;
 const Rw = ({ t, d, children }) => <div className="rk"><div className="fl"><div className="b">{t}</div>{d && <div className="xs mu">{d}</div>}</div>{children}</div>;
 function ThemeSwitch({ th }) { return <div className="seg" role="radiogroup" aria-label="Theme">{[["dark", "Dark", Moon], ["light", "Light", Sun], ["auto", "Auto", Monitor]].map(([k, l, I]) => <button key={k} role="radio" aria-checked={th.theme === k} className={th.theme === k ? "on" : ""} onClick={() => th.setTheme(k)}><I size={14} />{l}</button>)}</div>; }
@@ -205,7 +205,8 @@ function Call({ peer, incoming, onEnd, onChat, note }) {
 /* Thread: always a full-screen layer above everything (nav included), same as a call. */
 function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true, canCall = true, onSend, joinable, inline, onEsc }) {
   useModal(inline ? (onEsc || (() => {})) : onClose);
-  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, (orderId ? [] : SEED[p] || []).map((x) => ({ me: 0, x, t: "2m" }))]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
+  const canSend = canWrite && Boolean(orderId);
+  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, []]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
   useEffect(() => { setCur(start); }, [start]);
   useEffect(() => {
     if (!orderId || !supabase) return;
@@ -225,22 +226,18 @@ function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true
   }, [orderId, cur]); // eslint-disable-line
   useEffect(() => { end.current && end.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [log, ty, cur]);
   const send = async (x) => {
-    x = x.trim(); if (!x || !canWrite) return; setV(""); setError("");
-    if (orderId) {
-      try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
-      catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
-      return;
-    }
-    setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { me: 1, x, t: "now" }] })); onSend && onSend(cur); setTy(true); const w = cur; setTimeout(() => { setTy(false); setLog((l) => ({ ...l, [w]: [...(l[w] || []), { me: 0, x: "Got it 👍", t: "now" }] })); }, 1500);
+    x = x.trim(); if (!x || !canSend) return; setV(""); setError("");
+    try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
   };
   const join = () => { setJoined(true); setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { sys: 1, x: "Support joined this conversation" }] })); onSend && onSend(cur, "join"); };
   const body = <>
-    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r} · online{canWrite ? " · replies instantly" : " · read-only"}</div></div>
+    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r}{canSend ? " · order chat" : " · unavailable"}</div></div>
       <button className="ib g" aria-label="Call" disabled={!canCall} onClick={() => onCall(cur)}>{canCall ? <Phone size={18} /> : <Lock size={15} />}</button>{!inline && <button className="ib" aria-label="Close chat" onClick={onClose}><X size={18} /></button>}</div>
     {!inline && peers.length > 1 && <div className="pt">{peers.map((p) => <button key={p} className={cur === p ? "on" : ""} onClick={() => setCur(p)}><Av id={p} s={24} />{PPL[p].r}</button>)}</div>}
-    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canWrite ? "free, no airtime" : "read-only for your role"}</div>
+    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canSend ? "order conversation" : "Support chat is not connected."}</div>
       {(log[cur] || []).map((m, i) => m.sys ? <div key={i} className="sy">{m.x}</div> : <div key={i} className={cn("mg", m.me && "me")}>{m.x}<small>{m.t}{m.me ? " · ✓✓" : ""}</small></div>)}{ty && <div className="ty"><i /><i /><i /></div>}{error && <p className="xs" role="alert">{error}</p>}<div ref={end} /></div>
-    {!canWrite ? <div className="pl w ro"><Lock size={15} />Your role can read this thread but not write in it.</div> : <>
+    {!canSend ? <div className="pl w ro"><Lock size={15} />Only order-linked messages are currently stored. General support messaging is unavailable.</div> : <>
       {joinable && !joined && <div style={{ padding: "8px max(12px,calc((100% - 760px)/2)) 0", flex: "none" }}><button className="bt s w" onClick={join}><Radio size={13} />Join conversation (they will see "Support joined")</button></div>}
       <div className="qr">{(QR[PPL[cur].r] || []).map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}<button onClick={() => send("📍 Shared my live location")}><Navigation size={12} style={{ verticalAlign: -2 }} /> Share location</button></div>
       <div className="cb"><input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(v)} placeholder={"Message " + PPL[cur].n.split(" ")[0] + "…"} aria-label="Message" /><button className="ib g" aria-label="Send" onClick={() => send(v)}><Send size={17} /></button></div></>}
@@ -372,20 +369,22 @@ function Full({ title, onClose, foot, up, dlg, children }) {
 
 /* ═════════ Shell: header (profile · notifications · messages · support), rails, bottom nav, trending sidebar ═════════ */
 function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side, mw = 780, convs, notifs, say, thread, onProfile, who, top, children }) {
+  const profile = useAuthenticatedProfile();
+  const profileName = profile?.display_name || profile?.email || "Account";
   const [bell, setBell] = useState(false), [inb, setInb] = useState(false), [sp, setSp] = useState(false), [nun, setNun] = useState(notifs.filter((n) => n.u).length), [mread, setMread] = useState(false);
   const mun = mread ? 0 : convs.reduce((a, c) => a + (c.un || 0), 0);
   const item = (it, x) => <button key={it.k} className={cn("ni", tab === it.k && "on", it.lk && "lk", x)} onClick={() => (it.go ? it.go() : setTab(it.k))} aria-label={it.l} aria-current={tab === it.k ? "page" : undefined}><span className="ic"><span className="iw">{it.lk ? <Lock size={19} /> : <it.I size={21} />}{it.b ? <span className="bdg">{it.b}</span> : null}</span></span><span className="lt">{it.l}</span></button>;
   return <>
     <div className="lay"><nav className="nv" aria-label="Main"><div className="brand"><span className="lg">{letter}</span><div><b>Dispatch</b><span className="lb">{role}</span></div></div>{nav.map((it) => item(it, tkeys && !tkeys.includes(it.k) ? "xt" : ""))}{tkeys && <button className={cn("ni mr", !tkeys.includes(tab) && "on")} onClick={onMore} aria-label="More sections"><span className="ic"><span className="iw"><Menu size={21} />{nav.some((x) => !tkeys.includes(x.k) && x.b) ? <span className="bdg">{nav.filter((x) => !tkeys.includes(x.k)).reduce((s, x) => s + (x.b || 0), 0) || null}</span> : null}</span></span><span className="lt">More</span></button>}{foot && <div className="nvf">{foot}</div>}</nav>
       <main className="mn" style={{ "--mw": mw + "px" }}>
-        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{PPL.me.n}</b><span>{who}</span></span></button><span className="fl" />
+        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{profileName}</b><span>{who}</span></span></button><span className="fl" />
           <button className="ib" aria-label="Notifications" onClick={() => { setBell(true); setNun(0); }}><Bell size={19} />{nun ? <span className="bdg">{nun}</span> : null}</button>
           <button className="ib" aria-label="Messages" onClick={() => { setInb(true); setMread(true); }}><MessageSquareText size={19} />{mun ? <span className="bdg">{mun}</span> : null}</button>
           <button className="ib" aria-label="Support" onClick={() => setSp(true)}><Headset size={19} /></button></header>
         {top}<div className="col">{children}</div></main>
       {side && <aside className="sd" aria-label="Trending">{side}</aside>}</div>
     <nav className="bn" aria-label="Main">{(mnav || nav).map((it) => item(it))}</nav>
-    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>)}</Sheet>}
+    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.length ? notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>) : <p className="mu">No notifications yet.</p>}</Sheet>}
     {inb && <Comms mode="inbox" convs={convs} onClose={() => setInb(false)} say={say} thread={thread} />}
     {sp && <Comms mode="support" convs={[{ p: "sup" }]} onClose={() => setSp(false)} say={say} order="Support desk" thread={{ ...thread, canWrite: true, canCall: true, joinable: false }} />}
   </>;
@@ -400,7 +399,6 @@ function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side
 const money = (n) => "₦" + Math.round(n).toLocaleString();
 const PPL = { me: { n: "Operations HQ", r: "Operations", g: ["#c4b5fd", "#a78bfa"] }, cust: { n: "Customer", r: "Customer", g: ["#22d3ee", "#6366f1"] }, rider: { n: "Rider", r: "Rider", g: ["#60a5fa", "#a78bfa"] }, vendor: { n: "Vendor", r: "Vendor", g: ["#fb923c", "#f43f5e"] }, sup: { n: "Dispatch Support", r: "Support", g: ["#c4b5fd", "#a78bfa"] } };
 const QR = { Customer: ["We're on it", "Sorry for the delay", "Refund is on the way"], Rider: ["Where are you?", "Customer is waiting", "Need a swap?"], Vendor: ["Is it ready?", "Rider is outside", "Please hurry"], Support: ["Need help", "Escalating", "Thanks"] };
-const SEED = { cust: ["Hello, I need help with my order."], rider: [], vendor: [], sup: ["Hi team, we're here if you need anything."] };
 const PERMS = [["view", "See live orders, people and audit"], ["chat", "Write in chats"], ["call", "Call from an order"], ["assign", "Assign and reassign riders"], ["tickets", "Work support tickets"], ["users", "Suspend and reinstate people"], ["gift", "Gift bonuses and wallet credit"], ["bonus", "Edit the rider bonus model"], ["pricing", "Edit fees, zones and commission"], ["refund", "Issue refunds"], ["payout", "Approve payouts"], ["team", "Manage team and roles"]];
 const PL = Object.fromEntries(PERMS);
 const ROLES = { support: ["Support agent", ["view", "chat", "call", "tickets"]], dispatch: ["Dispatcher", ["view", "chat", "call", "assign"]], finance: ["Finance", ["view", "refund", "payout", "gift"]], manager: ["Ops manager", ["view", "chat", "call", "assign", "tickets", "users", "gift", "bonus", "pricing", "refund"]], admin: ["Super admin", PERMS.map((p) => p[0])] };
@@ -450,7 +448,6 @@ const TEAM0 = [["Amaka Obi", "support"], ["Dele Bankole", "dispatch"], ["Ngozi E
 const G0 = [{ n: "Tunde Bako", amt: 2000, note: "Rainy-day heroics", by: "Ops manager", t: "Yesterday", k: "rider" }, { n: "Aisha Bello", amt: 1000, note: "5★ week", by: "Super admin", t: "Mon", k: "rider" }];
 const B0 = { tiers: [[5, 500], [10, 1500], [15, 3000], [20, 5000]], lunch: { on: 1, m: 1.2 }, dinner: { on: 1, m: 1.3 }, rain: { on: 0, a: 200 }, far: { on: 1, a: 50 }, night: { on: 1, a: 150 }, streak: { on: 1, days: 5, orders: 8, a: 3000 }, minAcc: 80, minRate: 4.2, maxCx: 3, docs: 1, budget: 500000, cap: 12000, pay: "weekly" };
 const Z0 = { fees: { comm: 12, share: 80, svc: 100, min: 1500 }, zones: [{ n: "Wuse 2", on: 1, base: 500, km: 80, surge: 1.4 }, { n: "Maitama", on: 1, base: 600, km: 90, surge: 1.2 }, { n: "Garki", on: 1, base: 450, km: 70, surge: 1 }, { n: "Jabi", on: 1, base: 500, km: 75, surge: 1 }, { n: "Gwarinpa", on: 1, base: 600, km: 85, surge: 1.1 }, { n: "Asokoro", on: 0, base: 650, km: 90, surge: 1 }] };
-const NOTIFS = [{ e: "⏱", t: "Order #DL-4830 is late", d: "Suya Spot · 9 minutes over", w: "now", u: 1 }, { e: "🛵", t: "No rider on #DL-4833", d: "Cafe Neo is waiting", w: "2m", u: 1 }, { e: "🪪", t: "2 riders waiting for approval", d: "Hauwa Garba, Segun Alade", w: "20m" }, { e: "↩", t: "2 refund requests", d: "Awaiting finance", w: "1h" }];
 const REASONS = { r: [["safety", "", "Safety complaint"], ["fraud", "", "Fraud or fake deliveries"], ["conduct", "", "Poor conduct"], ["docs", "", "Documents expired"], ["other", "", "Other"]], v: [["hyg", "", "Hygiene complaint"], ["quality", "", "Repeated quality issues"], ["fraud", "", "Pricing or payment fraud"], ["docs", "", "Licence expired"], ["other", "", "Other"]], c: [["fraud", "", "Payment fraud"], ["abuse", "", "Abuse of riders or staff"], ["refund", "", "Refund abuse"], ["other", "", "Other"]] };
 const DURS = [["24h", "", "24 hours"], ["7d", "", "7 days"], ["review", "", "Until review"]];
 const calcB = (b, s) => {
@@ -474,7 +471,7 @@ const CSS2 = `.kp.k4{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-wi
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}.mt{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;padding:14px 6px 11px;border:1px solid var(--bd);border-radius:16px;background:var(--s1);color:var(--tx);transition:border-color .15s,background .15s}.mt:hover{border-color:var(--bh)}.mt.on{border-color:var(--ab);background:var(--as);color:var(--at)}.mt.lk{opacity:.5}.mt .mi{position:relative;display:grid;place-items:center;width:44px;height:38px;border-radius:12px;border:1px solid var(--bd);background:var(--s2);color:var(--ac)}.mt.on .mi{border-color:var(--ab)}.mt .ml{font-size:12.5px;font-weight:700;text-align:center;line-height:1.2}.mt .bdg{top:-6px;right:-6px}
 .mrow{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border:1px solid var(--bd);border-radius:16px;background:var(--s1);font-weight:700;margin-bottom:8px}.mrow:disabled{opacity:.5;cursor:not-allowed}`;
 export default function OpsApp() {
-  const th = useThemeState(), [toast, say] = useToast();
+  const th = useThemeState(), [toast, say] = useToast(), profile = useAuthenticatedProfile();
   const [role, setRole] = useState("manager"), [perms, setPerms] = useState(() => Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, v[1]]))), [tab, setTab] = useState("live"), [more, setMore] = useState(false);
   const [orders, setOrders] = useState([]), [sel, setSel] = useState(null), [det, setDet] = useState(false), [fl, setFl] = useState("all"), [logs, setLogs] = useState([["Now", "Session started", "System"]]), [pay, setPay] = useState(PAY0), [ref, setRef] = useState(REF0), [asg, setAsg] = useState(null), [setOpen, setSetOpen] = useState(false), [prefs, setPrefs] = useState({ alert: 1, confirm: 1 });
   const [riderProfiles, setRiderProfiles] = useState([]), [ordersReady, setOrdersReady] = useState(false);
@@ -598,7 +595,7 @@ export default function OpsApp() {
     audit: <><SW title="Most active today">{Object.entries(logs.reduce((m, l) => ({ ...m, [l[2]]: (m[l[2]] || 0) + 1 }), {})).map(([a, n]) => <Rk key={a} a={a} b={n + " actions"} />)}</SW><SW title="Risk alerts"><Rk a="Refunds over ₦10,000" b="1 today" /><Rk a="Role changes" b={logs.filter((l) => /Granted|Removed|Changed/.test(l[1])).length} /></SW></>,
     me: <><SW title="Shift"><Rk a="You are viewing as" b={RN} /><Rk a="Permissions" b={perms[role].length + " of " + PERMS.length} /></SW><SW title="Security"><p className="xs mu">Money and role changes are always written to the audit log.</p></SW></>,
   };
-  const convs = [{ p: "cust", last: "Hello, I need help with my order.", t: "now", un: 1 }, { p: "vendor", last: "Rider has not arrived.", t: "6m" }, { p: "sup", last: "We're here if you need anything.", t: "1h" }];
+  const convs = [];
   /* ── person detail dialog ── */
   const detail = () => {
     if (!E) return null; const k = ent.k; if (k === "r") PPL.rider.n = E.n; if (k === "v") PPL.vendor.n = E.n; if (k === "c") PPL.cust.n = E.n;
@@ -622,7 +619,7 @@ export default function OpsApp() {
   };
   const bsim = calcB(bonus, sim);
   return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS + CSS2}</style>
-    <Shell tkeys={TAB} onMore={() => setMore(true)} letter="O" role="Operations" nav={nav} mnav={mnav} tab={tab} setTab={setTab} mw={1100} convs={convs} notifs={NOTIFS} say={say} thread={{ canWrite: true, canCall: true, joinable: false }} who={"Viewing as " + RN} onProfile={() => setTab("me")} top={rolebar} side={sides[tab]}
+    <Shell tkeys={TAB} onMore={() => setMore(true)} letter="O" role="Operations" nav={nav} mnav={mnav} tab={tab} setTab={setTab} mw={1100} convs={convs} notifs={[]} say={say} thread={{ canWrite: true, canCall: true, joinable: false }} who={"Viewing as " + RN} onProfile={() => setTab("me")} top={rolebar} side={sides[tab]}
       foot={<><div className="lb">Viewing as</div><div className="b" style={{ fontSize: 16, marginTop: 2 }}>{RN}</div><div className="xs mu" style={{ marginTop: 2 }}>{perms[role].length} of {PERMS.length} permissions</div></>}>
       {tab === "live" && <>
         <div className="kp k4"><div><b>{activeOrders.length}</b><span className="xs mu">Active orders</span></div><div><b>{riderProfiles.length}</b><span className="xs mu">Rider accounts</span></div><div><b>{attn}</b><span className="xs mu">Need attention</span></div><div><b>{unassignedOrders.length}</b><span className="xs mu">Need a rider</span></div></div>
@@ -698,8 +695,9 @@ export default function OpsApp() {
         <div className="tbar"><Drop label="By" value={sf.au} options={[["all", "", "Everyone"], ...[...new Set(logs.map((l) => l[2]))].map((x) => [x, "", x])]} onPick={(v) => setSf({ ...sf, au: v })} /></div>
         <div className="cd">{logs.filter((l) => sf.au === "all" || l[2] === sf.au).map(([t, m, w], i) => <div key={i} className="log"><ScrollText size={16} className="ac" /><div className="fl"><div>{m}</div><div className="xs mu">{w} · {t}</div></div></div>)}</div></>}
       {tab === "me" && <>
-        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>Operations HQ</h2><div className="xs mu">Abuja control room · {RN}</div></div><span className="ch g"><ShieldCheck size={11} />Verified</span></div>
-        <div className="kp k4"><div><b>{perms[role].length}</b><span className="xs mu">Permissions</span></div><div><b>{logs.length}</b><span className="xs mu">Actions logged</span></div><div><b>{attn}</b><span className="xs mu">Need attention</span></div><div><b>{team.length}</b><span className="xs mu">Team</span></div></div>
+        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>{profile?.display_name || "Operations account"}</h2><div className="xs mu tr">{profile?.email || "Email unavailable"}</div><div className="xs mu">{profile?.role || "ops"} account</div></div></div>
+        <ProfileEditor />
+        <div className="kp k4"><div><b>{orders.length}</b><span className="xs mu">Live orders</span></div><div><b>{riderProfiles.length}</b><span className="xs mu">Rider accounts</span></div><div><b>{unassignedOrders.length}</b><span className="xs mu">Need a rider</span></div><div><b>{activeOrders.length}</b><span className="xs mu">Active</span></div></div>
         <div className="cd"><div className="lb">Preview as another role</div><div style={{ marginTop: 10 }}>{rolebar}</div></div>
         <button className="setrow" onClick={() => setSetOpen(true)}><Settings size={20} className="ac" /><span className="fl">Settings</span><ChevronRight size={18} className="mu" /></button></>}
     </Shell>
@@ -714,6 +712,6 @@ export default function OpsApp() {
       <div className="cd"><div className="lb" style={{ marginBottom: 10 }}>Appearance</div><ThemeSwitch th={th} /><p className="xs mu" style={{ marginTop: 8 }}>Light is bright and crisp for the control room. Dark is easy on the eyes on night shift. Auto follows the device.</p></div>
       <div className="cd"><div className="lb">Operations</div>{[["alert", "Late-order alerts", "Notify when an order passes its promised time"], ["confirm", "Confirm money actions", "Ask before refunds and payouts (recorded in Audit)"]].map(([k, t, d]) => <Rw key={k} t={t} d={d}><Tgl on={prefs[k]} label={t} set={() => { setPrefs({ ...prefs, [k]: prefs[k] ? 0 : 1 }); say(t + (prefs[k] ? " off" : " on")); }} /></Rw>)}</div>
       <div className="cd"><div className="lb">Help and support</div><div style={{ marginTop: 10 }}><ContactBar order="Support desk" peers={["sup"]} say={say} /></div></div>
-      <SignOut say={say} who="Operations HQ" /></Full>}
+      <SignOut say={say} who={profile?.display_name || profile?.email || "Operations"} /></Full>}
     <Toast t={toast} /></div></ThemeCtx.Provider>;
 }

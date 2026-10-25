@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 type PeriodKey = 'D' | 'W' | 'M' | 'Y' | 'C';
 type Span = { f: number; e: number; label: string };
 type Bar = { l: string; f: string; v: number };
-type TimelineConfig = { base: number; salt: number; zero?: number; avg: number; step?: number; inv?: boolean };
+export type TimelineConfig = { base: number; salt: number; zero?: number; avg: number; step?: number; inv?: boolean };
 type TimelineStats = { total: number; n: number; data: Bar[]; k: PeriodKey; delta: number | null; prev: number; len: number };
 type TimelineProps = {
   cfg: TimelineConfig;
@@ -22,7 +22,7 @@ const HRS = [0, 0, 0, 0, 0, 0, .01, .03, .06, .07, .05, .07, .12, .1, .05, .04, 
 const HS = HRS.reduce((total, value) => total + value, 0);
 const cn = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ');
 
-const sod = (value: number) => {
+export const sod = (value: number) => {
   const date = new Date(value);
   date.setHours(0, 0, 0, 0);
   return date.getTime();
@@ -43,7 +43,7 @@ const parse = (value: string) => {
   const [year, month, day] = value.split('-').map(Number);
   return new Date(year, month - 1, day).getTime();
 };
-const days = (from: number, to: number) => {
+export const days = (from: number, to: number) => {
   const result: number[] = [];
   const date = new Date(from);
   while (date.getTime() <= to) {
@@ -80,7 +80,7 @@ function span(key: PeriodKey, offset: number, custom: [string, string]): Span {
   return { f: from, e: to, label: fmtD(from) + ' – ' + fmtD(to) };
 }
 
-const makeValue = (config: TimelineConfig, live?: number | null) => (time: number) => {
+export const makeValue = (config: TimelineConfig, live?: number | null) => (time: number) => {
   const today = sod(Date.now());
   if (time > today) return 0;
   if (time === today && live != null) return live;

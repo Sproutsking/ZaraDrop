@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useRef, useContext, createContext } from "react";
 import { EyeOff, Search, Clock, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Volume2, MessageCircle, MessageSquareText, Send, X, ShieldCheck, Plus, Minus, ChevronLeft, ChevronRight, ChevronDown, Check, Wallet, Banknote, Navigation, Bell, BarChart3, ArrowDownLeft, ArrowUpRight, LogOut, Landmark, Headset, Settings, Moon, Sun, Monitor, Store, ChefHat, UtensilsCrossed, Ban, Users, Lock, Eye, Radio, Pencil, Menu, KeyRound, Trash2 } from "lucide-react";
-import { createOwnedVendor, createVendorMenuItem, getOwnedVendor, listOrderMessages, listVendorOrders, sendOrderMessage, setMenuItemAvailability, setOwnedVendorAvailability, setVendorOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase } from "@zaradrop/core";
-import { DemoNotice, Timeline } from "@zaradrop/ui";
+import { createOwnedVendor, createVendorMenuItem, getOwnedVendor, listOrderMessages, listVendorOrders, sendOrderMessage, setMenuItemAvailability, setOwnedVendorAvailability, setVendorOrderStatus, subscribeToOrderMessages, subscribeToOrders, supabase, updateOwnedVendor } from "@zaradrop/core";
+import { DemoNotice, ProfileEditor, Timeline, useAuthenticatedProfile } from "@zaradrop/ui";
 import MenuManager from "./sections/menu/MenuManager.jsx";
 
 /* ═════════ DESIGN SYSTEM (shared by all four Dispatch apps) ═════════ */
@@ -180,7 +180,7 @@ function useModal(onClose) {
 }
 function useToast() { const [t, s] = useState(""); useEffect(() => { if (!t) return; const x = setTimeout(() => s(""), 2200); return () => clearTimeout(x); }, [t]); return [t, s]; }
 const Toast = ({ t }) => (t ? <Portal><div className="toast" role="status">{t}</div></Portal> : null);
-function Av({ id, s = 40, on }) { const p = PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1] }}>{p.n[0]}{on && <i />}</span>; }
+function Av({ id, s = 40, on }) { const profile = useAuthenticatedProfile(); const p = id === "me" && profile ? { ...PPL.me, n: profile.display_name } : PPL[id]; return <span className="av" style={{ "--s": s + "px", "--g1": p.g[0], "--g2": p.g[1], overflow: "hidden" }}>{id === "me" && profile?.avatar_url ? <img src={profile.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : p.n[0]}{on && <i />}</span>; }
 const Tgl = ({ on, set, label, big }) => <button className={cn("tgl", big && "big", on && "on")} role="switch" aria-checked={!!on} aria-label={label} onClick={set} />;
 const Rw = ({ t, d, children }) => <div className="rk"><div className="fl"><div className="b">{t}</div>{d && <div className="xs mu">{d}</div>}</div>{children}</div>;
 function ThemeSwitch({ th }) { return <div className="seg" role="radiogroup" aria-label="Theme">{[["dark", "Dark", Moon], ["light", "Light", Sun], ["auto", "Auto", Monitor]].map(([k, l, I]) => <button key={k} role="radio" aria-checked={th.theme === k} className={th.theme === k ? "on" : ""} onClick={() => th.setTheme(k)}><I size={14} />{l}</button>)}</div>; }
@@ -205,7 +205,8 @@ function Call({ peer, incoming, onEnd, onChat, note }) {
 /* Thread: always a full-screen layer above everything (nav included), same as a call. */
 function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true, canCall = true, onSend, joinable, inline, onEsc }) {
   useModal(inline ? (onEsc || (() => {})) : onClose);
-  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, (orderId ? [] : SEED[p] || []).map((x) => ({ me: 0, x, t: "2m" }))]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
+  const canSend = canWrite && Boolean(orderId);
+  const [cur, setCur] = useState(start), [log, setLog] = useState(() => Object.fromEntries(peers.map((p) => [p, []]))), [ty, setTy] = useState(false), [v, setV] = useState(""), [joined, setJoined] = useState(false), [error, setError] = useState(""), end = useRef(null);
   useEffect(() => { setCur(start); }, [start]);
   useEffect(() => {
     if (!orderId || !supabase) return;
@@ -225,22 +226,18 @@ function Thread({ peers, start, onCall, onClose, order, orderId, canWrite = true
   }, [orderId, cur]); // eslint-disable-line
   useEffect(() => { end.current && end.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [log, ty, cur]);
   const send = async (x) => {
-    x = x.trim(); if (!x || !canWrite) return; setV(""); setError("");
-    if (orderId) {
-      try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
-      catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
-      return;
-    }
-    setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { me: 1, x, t: "now" }] })); onSend && onSend(cur); setTy(true); const w = cur; setTimeout(() => { setTy(false); setLog((l) => ({ ...l, [w]: [...(l[w] || []), { me: 0, x: "Got it 👍", t: "now" }] })); }, 1500);
+    x = x.trim(); if (!x || !canSend) return; setV(""); setError("");
+    try { await sendOrderMessage(orderId, x); onSend && onSend(cur); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not send this message."); }
   };
   const join = () => { setJoined(true); setLog((l) => ({ ...l, [cur]: [...(l[cur] || []), { sys: 1, x: "Support joined this conversation" }] })); onSend && onSend(cur, "join"); };
   const body = <>
-    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r} · online{canWrite ? " · replies instantly" : " · read-only"}</div></div>
+    <div className="hd"><Av id={cur} s={42} on /><div className="fl"><div className="b tr">{PPL[cur].n}</div><div className="xs ac">{PPL[cur].r}{canSend ? " · order chat" : " · unavailable"}</div></div>
       <button className="ib g" aria-label="Call" disabled={!canCall} onClick={() => onCall(cur)}>{canCall ? <Phone size={18} /> : <Lock size={15} />}</button>{!inline && <button className="ib" aria-label="Close chat" onClick={onClose}><X size={18} /></button>}</div>
     {!inline && peers.length > 1 && <div className="pt">{peers.map((p) => <button key={p} className={cur === p ? "on" : ""} onClick={() => setCur(p)}><Av id={p} s={24} />{PPL[p].r}</button>)}</div>}
-    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canWrite ? "free, no airtime" : "read-only for your role"}</div>
+    <div className="bdy" style={{ gap: 8 }}><div className="sy">{order ? order + " · " : ""}{canSend ? "order conversation" : "Support chat is not connected."}</div>
       {(log[cur] || []).map((m, i) => m.sys ? <div key={i} className="sy">{m.x}</div> : <div key={i} className={cn("mg", m.me && "me")}>{m.x}<small>{m.t}{m.me ? " · ✓✓" : ""}</small></div>)}{ty && <div className="ty"><i /><i /><i /></div>}{error && <p className="xs" role="alert">{error}</p>}<div ref={end} /></div>
-    {!canWrite ? <div className="pl w ro"><Lock size={15} />Your role can read this thread but not write in it.</div> : <>
+    {!canSend ? <div className="pl w ro"><Lock size={15} />Only order-linked messages are currently stored. General support messaging is unavailable.</div> : <>
       {joinable && !joined && <div style={{ padding: "8px max(12px,calc((100% - 760px)/2)) 0", flex: "none" }}><button className="bt s w" onClick={join}><Radio size={13} />Join conversation (they will see "Support joined")</button></div>}
       <div className="qr">{(QR[PPL[cur].r] || []).map((q) => <button key={q} onClick={() => send(q)}>{q}</button>)}<button onClick={() => send("📍 Shared my live location")}><Navigation size={12} style={{ verticalAlign: -2 }} /> Share location</button></div>
       <div className="cb"><input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(v)} placeholder={"Message " + PPL[cur].n.split(" ")[0] + "…"} aria-label="Message" /><button className="ib g" aria-label="Send" onClick={() => send(v)}><Send size={17} /></button></div></>}
@@ -372,20 +369,22 @@ function Full({ title, onClose, foot, up, dlg, children }) {
 
 /* ═════════ Shell: header (profile · notifications · messages · support), rails, bottom nav, trending sidebar ═════════ */
 function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side, mw = 780, convs, notifs, say, thread, onProfile, who, top, children }) {
+  const profile = useAuthenticatedProfile();
+  const profileName = profile?.display_name || profile?.email || "Account";
   const [bell, setBell] = useState(false), [inb, setInb] = useState(false), [sp, setSp] = useState(false), [nun, setNun] = useState(notifs.filter((n) => n.u).length), [mread, setMread] = useState(false);
   const mun = mread ? 0 : convs.reduce((a, c) => a + (c.un || 0), 0);
   const item = (it, x) => <button key={it.k} className={cn("ni", tab === it.k && "on", it.lk && "lk", x)} onClick={() => (it.go ? it.go() : setTab(it.k))} aria-label={it.l} aria-current={tab === it.k ? "page" : undefined}><span className="ic"><span className="iw">{it.lk ? <Lock size={19} /> : <it.I size={21} />}{it.b ? <span className="bdg">{it.b}</span> : null}</span></span><span className="lt">{it.l}</span></button>;
   return <>
     <div className="lay"><nav className="nv" aria-label="Main"><div className="brand"><span className="lg">{letter}</span><div><b>Dispatch</b><span className="lb">{role}</span></div></div>{nav.map((it) => item(it, tkeys && !tkeys.includes(it.k) ? "xt" : ""))}{tkeys && <button className={cn("ni mr", !tkeys.includes(tab) && "on")} onClick={onMore} aria-label="More sections"><span className="ic"><span className="iw"><Menu size={21} />{nav.some((x) => !tkeys.includes(x.k) && x.b) ? <span className="bdg">{nav.filter((x) => !tkeys.includes(x.k)).reduce((s, x) => s + (x.b || 0), 0) || null}</span> : null}</span></span><span className="lt">More</span></button>}{foot && <div className="nvf">{foot}</div>}</nav>
       <main className="mn" style={{ "--mw": mw + "px" }}>
-        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{PPL.me.n}</b><span>{who}</span></span></button><span className="fl" />
+        <header className="hdr"><button className="pf" onClick={onProfile} aria-label="Open profile"><Av id="me" s={40} on /><span className="t"><b className="tr" style={{ display: "block", maxWidth: 160 }}>{profileName}</b><span>{who}</span></span></button><span className="fl" />
           <button className="ib" aria-label="Notifications" onClick={() => { setBell(true); setNun(0); }}><Bell size={19} />{nun ? <span className="bdg">{nun}</span> : null}</button>
           <button className="ib" aria-label="Messages" onClick={() => { setInb(true); setMread(true); }}><MessageSquareText size={19} />{mun ? <span className="bdg">{mun}</span> : null}</button>
           <button className="ib" aria-label="Support" onClick={() => setSp(true)}><Headset size={19} /></button></header>
         {top}<div className="col">{children}</div></main>
       {side && <aside className="sd" aria-label="Trending">{side}</aside>}</div>
     <nav className="bn" aria-label="Main">{(mnav || nav).map((it) => item(it))}</nav>
-    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>)}</Sheet>}
+    {bell && <Sheet kind="nt" title="Notifications" onClose={() => setBell(false)}>{notifs.length ? notifs.map((n, i) => <div key={i} className="ct2" style={{ alignItems: "flex-start" }}><span className="em sm" style={{ width: 38, height: 38, fontSize: 18 }}>{n.e}</span><div className="fl"><div className="b">{n.t}</div><div className="xs mu">{n.d}</div></div><span className="xs mu">{n.w}</span></div>) : <p className="mu">No notifications yet.</p>}</Sheet>}
     {inb && <Comms mode="inbox" convs={convs} onClose={() => setInb(false)} say={say} thread={thread} />}
     {sp && <Comms mode="support" convs={[{ p: "sup" }]} onClose={() => setSp(false)} say={say} order="Support desk" thread={{ ...thread, canWrite: true, canCall: true, joinable: false }} />}
   </>;
@@ -399,7 +398,6 @@ function Shell({ tkeys, onMore, mnav, letter, role, nav, tab, setTab, foot, side
 const money = (n) => "₦" + Math.round(n).toLocaleString();
 const PPL = { me: { n: "Mama Put Kitchen", r: "Vendor", g: ["#fb923c", "#f43f5e"] }, cust: { n: "Customer", r: "Customer", g: ["#22d3ee", "#6366f1"] }, rider: { n: "Tunde Bako", r: "Rider", g: ["#60a5fa", "#a78bfa"] }, sup: { n: "Dispatch Support", r: "Support", g: ["#c4b5fd", "#a78bfa"] } };
 const QR = { Customer: ["Your order is ready", "Item unavailable, swap?", "Running 5 min late"], Rider: ["Order is ready", "Come to the side door", "Please confirm the order no."], Support: ["Need help", "Menu issue", "Payout question"] };
-const SEED = { cust: ["Please add extra pepper."], rider: [], sup: ["Hi Mama Put, we're here if you need anything."] };
 const PERMS = [["accept", "Accept orders"], ["reject", "Reject orders"], ["ready", "Mark orders ready"], ["complete", "Hand over and complete orders"], ["menu", "Edit menu and stock"], ["sales", "View sales"], ["payout", "Withdraw money"], ["staff", "Manage team and roles"]];
 const ALL = PERMS.map((p) => p[0]);
 const ROLES0 = [{ id: "mgmt", n: "Management", lock: 1, perms: ALL }, { id: "sup", n: "Supervisor", perms: ["accept", "reject", "ready", "complete", "menu", "sales"] }, { id: "att", n: "Attendant", perms: ["accept", "ready", "complete"] }];
@@ -409,7 +407,6 @@ const Sa = ({ n, i, s = 36, on }) => <span className="av" style={{ "--s": s + "p
 const WHY = ["Item sold out", "Kitchen too busy", "Closing soon"];
 const WK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CFG = { base: 80000, salt: 5, zero: 0, avg: 3700, step: 100 };
-const NOTIFS = [{ e: "🧾", t: "New order #DL-4821", d: "2× Jollof rice + chicken · ₦9,400", w: "now", u: 1 }, { e: "💸", t: "Settlement sent", d: "₦318,400 reached GTBank ···· 9102", w: "Yesterday", u: 1 }, { e: "⭐", t: "New 5★ review", d: "\"Best jollof in Wuse!\"", w: "2d" }];
 const vendorOrderView = (order) => ({
   id: "#DL-" + order.order_number,
   dbId: order.id,
@@ -417,6 +414,7 @@ const vendorOrderView = (order) => ({
   total: Number(order.total),
   s: order.rider_id ? "handed" : ({ placed: "new", preparing: "prep", ready: "ready" }[order.status] || "closed"),
   left: 0,
+  createdAt: order.created_at,
   note: order.customer_note
 });
 const CSS2 = `.colh{display:flex;align-items:center;gap:8px;margin-bottom:10px}.colh i{width:8px;height:8px;border-radius:50%}
@@ -437,11 +435,10 @@ function PinSheet({ title, need, staff, roles, onOk, onClose, say }) {
       <button className="bt p w xl" disabled={pin.join("").length < 4} onClick={go}><KeyRound size={18} />Confirm</button></>}</Sheet>;
 }
 export default function VendorApp() {
-  const th = useThemeState(), [toast, say] = useToast();
+  const th = useThemeState(), [toast, say] = useToast(), profile = useAuthenticatedProfile();
   const [tab, setTab] = useState("q"), [q, setQ] = useState([]), [open, setOpen] = useState(null), [busy, setBusy] = useState(false), [rej, setRej] = useState(null), [why, setWhy] = useState(WHY[0]), [ring, setRing] = useState(null);
-  const [ownedVendor, setOwnedVendor] = useState(undefined), [backendReady, setBackendReady] = useState(false), [vendorDraft, setVendorDraft] = useState({ name: "", pickup_address: "", delivery_fee: "" }), [vendorSaving, setVendorSaving] = useState(false), [menuDraft, setMenuDraft] = useState({ name: "", price: "" }), [menuSaving, setMenuSaving] = useState(false);
-  const [accts, setAccts] = useState([]), [payM, setPayM] = useState(false), [sch, setSch] = useState("daily"), [menu, setMenu] = useState([]), [sales, setSales] = useState(0), [cnt, setCnt] = useState(0), [prep, setPrep] = useState(30), [hrs, setHrs] = useState([1, 1, 1, 1, 1, 1, 1]), [prefs, setPrefs] = useState({ auto: 0, snd: 1, print: 0 });
-  const [avail, setAvail] = useState(412500), [wd, setWd] = useState(false), [pays, setPays] = useState([["Settlement", "Yesterday", 318400], ["Settlement", "Mon", 402900], ["Settlement", "Last Fri", 377200]]);
+  const [ownedVendor, setOwnedVendor] = useState(undefined), [backendReady, setBackendReady] = useState(false), [vendorDraft, setVendorDraft] = useState({ name: "", pickup_address: "", delivery_fee: "" }), [vendorSaving, setVendorSaving] = useState(false), [settingsDraft, setSettingsDraft] = useState({ name: "", pickup_address: "", delivery_fee: "0", prep_minutes: "30" }), [settingsSaving, setSettingsSaving] = useState(false), [menuDraft, setMenuDraft] = useState({ name: "", price: "" }), [menuSaving, setMenuSaving] = useState(false);
+  const [menu, setMenu] = useState([]), [prefs, setPrefs] = useState({ snd: 1 });
   const [tq, setTq] = useState(""), [rf, setRf] = useState("all"), [sf, setSf] = useState("all"), [mem, setMem] = useState(null), [nm, setNm] = useState(null), [tv, setTv] = useState("people"), [np, setNp] = useState(["", "", "", ""]), [roles, setRoles] = useState(ROLES0), [staff, setStaff] = useState(STAFF0), [setOpenS, setSetOpenS] = useState(false), [team, setTeam] = useState(false), [pinFor, setPinFor] = useState(null), [hand, setHand] = useState([]), [nr, setNr] = useState(""), [ns, setNs] = useState({ n: "", role: "att" });
   useEffect(() => {
     let active = true;
@@ -451,6 +448,7 @@ export default function VendorApp() {
         if (!active) return;
         setOwnedVendor(vendor);
         if (!vendor) return;
+        setSettingsDraft({ name: vendor.name, pickup_address: vendor.pickup_address, delivery_fee: String(vendor.delivery_fee), prep_minutes: String(vendor.prep_minutes) });
         setBusy(!vendor.is_active);
         const rows = await listVendorOrders();
         if (!active) return;
@@ -499,6 +497,7 @@ export default function VendorApp() {
       });
       const vendor = await getOwnedVendor();
       setOwnedVendor(vendor);
+      if (vendor) setSettingsDraft({ name: vendor.name, pickup_address: vendor.pickup_address, delivery_fee: String(vendor.delivery_fee), prep_minutes: String(vendor.prep_minutes) });
       setBusy(true);
       say("Vendor profile saved. Add menu items, then open your listing.");
     } catch (error) {
@@ -506,6 +505,29 @@ export default function VendorApp() {
     } finally {
       setVendorSaving(false);
       setBackendReady(true);
+    }
+  };
+  const saveVendorSettings = async (event) => {
+    event.preventDefault();
+    if (!ownedVendor) return;
+    try {
+      setSettingsSaving(true);
+      await updateOwnedVendor(ownedVendor.id, {
+        name: settingsDraft.name.trim(),
+        pickup_address: settingsDraft.pickup_address.trim(),
+        delivery_fee: Number(settingsDraft.delivery_fee),
+        prep_minutes: Number(settingsDraft.prep_minutes)
+      });
+      const vendor = await getOwnedVendor();
+      if (vendor) {
+        setOwnedVendor(vendor);
+        setSettingsDraft({ name: vendor.name, pickup_address: vendor.pickup_address, delivery_fee: String(vendor.delivery_fee), prep_minutes: String(vendor.prep_minutes) });
+      }
+      say("Vendor profile saved");
+    } catch (error) {
+      say(error instanceof Error ? error.message : "Could not save vendor settings.");
+    } finally {
+      setSettingsSaving(false);
     }
   };
   const saveMenuItem = async (event) => {
@@ -543,8 +565,6 @@ export default function VendorApp() {
       say(error instanceof Error ? error.message : "Could not update menu availability.");
     }
   };
-  const roleOf = (s) => roles.find((r) => r.id === s.role) || roles[2], duty = staff.filter((s) => s.duty), allow = (p) => duty.some((s) => roleOf(s).perms.includes(p)), PL = Object.fromEntries(PERMS);
-  const guard = (p, fn) => () => (allow(p) ? fn() : say("Nobody on duty can " + PL[p].toLowerCase() + " · open Team and roles"));
   const mv = async (o, s, m) => {
     try {
       await setVendorOrderStatus(o.dbId, s === "prep" ? "preparing" : "ready");
@@ -575,16 +595,18 @@ export default function VendorApp() {
       {open === o.id && <div className="col" style={{ marginTop: 12, gap: 12 }}>
         <div className="col" style={{ gap: 4 }}>{o.items.map((x) => <div key={x}>{x}</div>)}{o.note && <div className="ch o" style={{ alignSelf: "flex-start" }}>Note: {o.note}</div>}</div>
         <ContactBar order={o.id} orderId={o.dbId} peers={peersFor(o)} say={say} ring={ring === o.id ? "rider" : null} clearRing={() => setRing(null)} />
-        {o.s === "new" && <div className="acts"><button className="bt r" onClick={guard("reject", () => setRej(o))}><Ban size={14} />Reject</button><button className="bt p" onClick={guard("accept", () => mv(o, "prep", "Accepted · customer notified"))}>Accept · {prep} min</button></div>}
-        {o.s === "prep" && <button className="bt p w" onClick={guard("ready", () => mv(o, "ready", "Ready · rider notified"))}><Check size={16} />Mark ready</button>}
+        {o.s === "new" && <div className="acts"><button className="bt r" onClick={() => setRej(o)}><Ban size={14} />Reject</button><button className="bt p" onClick={() => void mv(o, "prep", "Accepted · customer notified")}>Accept · {ownedVendor.prep_minutes} min</button></div>}
+        {o.s === "prep" && <button className="bt p w" onClick={() => void mv(o, "ready", "Ready · rider notified")}><Check size={16} />Mark ready</button>}
         {o.s === "ready" && <div className="pl"><Bike size={15} className="ac" />This order is ready and available to riders in their jobs queue.</div>}
       </div>}
     </div>
   );
   const newN = q.filter((x) => x.s === "new").length;
-  const nav = [{ k: "q", l: "Orders", I: ChefHat, b: newN }, { k: "menu", l: "Menu", I: UtensilsCrossed }, { k: "stats", l: "Sales", I: BarChart3 }, { k: "team", l: "Team", I: Users, b: duty.length ? 0 : 1 }, { k: "me", l: "Account", I: Store }];
-  const top = [["Jollof rice + chicken", 38], ["Pepper soup", 26], ["Moi moi", 18], ["Fried plantain", 12], ["Chapman", 6]], mix = [["Wallet", 46], ["Card", 34], ["Cash", 20]];
-  const convs = [{ p: "cust", last: "Please add extra pepper.", t: "now", un: 1 }, { p: "rider", last: "On my way to you.", t: "5m" }, { p: "sup", last: "We're here if you need anything.", t: "1h" }];
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const todayOrders = q.filter((row) => row.createdAt && new Date(row.createdAt) >= todayStart);
+  const salesToday = todayOrders.reduce((total, row) => total + row.total, 0);
+  const nav = [{ k: "q", l: "Orders", I: ChefHat, b: newN }, { k: "menu", l: "Menu", I: UtensilsCrossed }, { k: "me", l: "Account", I: Store }];
+  const convs = [];
   const mgmtN = staff.filter((s) => s.role === "mgmt" && s.ok).length;
   const setRoleOf = (id, rid) => { if (!allow("staff")) { say("Only management can change roles"); return; } const s = staff.find((x) => x.id === id); if (s.role === "mgmt" && rid !== "mgmt" && mgmtN < 2) { say("Keep at least one manager on the team"); return; } setStaff(staff.map((x) => (x.id === id ? { ...x, role: rid } : x))); say(s.n.split(" ")[0] + " is now " + roles.find((r) => r.id === rid).n); };
   const suspend = (id) => { if (!allow("staff")) { say("Only management can suspend people"); return; } const s = staff.find((x) => x.id === id); if (s.role === "mgmt" && s.ok && mgmtN < 2) { say("Keep at least one manager active"); return; } setStaff(staff.map((x) => (x.id === id ? { ...x, ok: x.ok ? 0 : 1, duty: 0, since: "" } : x))); say(s.n.split(" ")[0] + (s.ok ? " suspended · cannot clock in" : " reinstated")); };
@@ -594,44 +616,22 @@ export default function VendorApp() {
   const roleOpts = roles.map((r) => [r.id, "", r.n]);
   const Rk = ({ a, b }) => <div className="rk"><span className="fl b">{a}</span><span className="xs mu">{b}</span></div>;
   const sides = {
-    q: <>
-      <SW title="Trending in Abuja">{[["🍲 Jollof rice", "↑ 18%"], ["🍢 Suya", "↑ 12%"], ["🥘 Pepper soup", "↑ 9%"], ["🍹 Chapman", "↑ 7%"]].map(([a, b]) => <div key={a} className="rk"><span className="fl b">{a}</span><span className="ch g">{b}</span></div>)}</SW>
-      <SW title="Demand today">{[["Lunch · 12–2 PM", 82], ["Dinner · 5–8 PM", 94], ["Late night", 31]].map(([l, p]) => <div key={l} style={{ marginTop: 10 }}><div className="row xs"><span className="fl">{l}</span><b>{p}%</b></div><div className="pb" style={{ marginTop: 5 }}><i style={{ width: p + "%" }} /></div></div>)}</SW>
-      <SW title="Riders nearby"><Rk a="Available now" b="6 riders" /><Rk a="Avg pickup time" b="4 min" /></SW></>,
-    menu: <>
-      <SW title="Hot items across Abuja">{[["Jollof rice + chicken", "38/hr"], ["Beef suya", "29/hr"], ["Pepper soup", "17/hr"], ["Moi moi", "12/hr"]].map(([a, b]) => <Rk key={a} a={a} b={b} />)}</SW>
-      <SW title="Menu health"><Rk a="Available items" b={menu.filter((x) => x[2]).length + " of " + menu.length} /><Rk a="Sold out" b={menu.filter((x) => !x[2]).length} /></SW>
-      <div className="cd hl"><div className="lb">Tip</div><p style={{ marginTop: 6 }}>Switch an item off the moment it runs out. It lifts your acceptance rate.</p></div></>,
-    stats: <>
-      <SW title="Benchmark · kitchens"><Rk a="Avg ticket in Abuja" b="₦3,900" /><Rk a="Your avg ticket" b={money(CFG.avg)} /><Rk a="Avg prep time" b="12 min" /></SW>
-      <SW title="Payout"><Rk a="Settled daily" b="6 PM" /><Rk a="Platform fee" b="12%" /></SW>
-      <SW title="Peak hours in Abuja"><Rk a="Dinner" b="5–8 PM" /><Rk a="Lunch" b="12–2 PM" /></SW></>,
-    team: <>
-      <SW title="On duty now" act={<span className="ch g">{duty.length}</span>}>{duty.map((s) => <div key={s.id} className="rk"><Sa n={s.n} i={staff.indexOf(s)} s={30} on /><div className="fl"><div className="b tr">{s.n}</div><div className="xs mu">{roleOf(s).n} · since {s.since}</div></div></div>)}{!duty.length && <p className="xs mu">Nobody is clocked in.</p>}</SW>
-      <SW title="Completed today">{[...staff].sort((a, b) => b.done - a.done).slice(0, 3).map((s) => <Rk key={s.id} a={s.n} b={s.done + " orders"} />)}</SW>
-      <div className="cd hl"><div className="lb">Tip</div><p style={{ marginTop: 6 }}>Everyone completes orders with their own PIN, so the log always shows who handed over.</p></div></>,
-    me: <>
-      <SW title="Compliance"><Rk a="Food licence" b="Valid" /><Rk a="Health check" b="Due in 22 days" /><Rk a="Bank details" b="Verified" /></SW>
-      <SW title="Customer reviews"><Rk a="Last 7 days" b="4.8★" /><Rk a="Reviews" b="31" /></SW></>,
+    q: <SW title="Live orders"><Rk a="Open tickets" b={String(q.length)} /><Rk a="New" b={String(q.filter((row) => row.s === "new").length)} /><Rk a="Preparing" b={String(q.filter((row) => row.s === "prep").length)} /><Rk a="Ready" b={String(q.filter((row) => row.s === "ready").length)} /></SW>,
+    menu: <SW title="Menu status"><Rk a="Available items" b={menu.filter((item) => item[2]).length + " of " + menu.length} /><Rk a="Unavailable items" b={String(menu.filter((item) => !item[2]).length)} /></SW>,
+    me: <SW title="Listing"><Rk a="Status" b={ownedVendor?.is_active ? "Open" : "Paused"} /><Rk a="Prep time" b={(ownedVendor?.prep_minutes ?? "—") + " min"} /></SW>,
   };
   if (!backendReady) return <main className="dl" style={{ padding: 24 }}>Loading vendor workspace…</main>;
-  if (!ownedVendor) return <main className="dl" style={{ padding: 24 }}><style>{CSS}</style><section className="cd" style={{ width: "min(560px,100%)", margin: "8vh auto" }}><div className="lb">Vendor setup</div><h1 className="serif" style={{ fontSize: 28, margin: "8px 0" }}>Create your vendor profile</h1><p className="mu" style={{ marginBottom: 18 }}>This profile is private until you switch your listing on.</p><form className="col" onSubmit={saveVendorProfile}><label className="lb">Business name<input className="in" required value={vendorDraft.name} onChange={(event) => setVendorDraft({ ...vendorDraft, name: event.target.value })} /></label><label className="lb">Pickup address<input className="in" required value={vendorDraft.pickup_address} onChange={(event) => setVendorDraft({ ...vendorDraft, pickup_address: event.target.value })} /></label><label className="lb">Delivery fee in NGN<input className="in" type="number" min="0" step="1" required value={vendorDraft.delivery_fee} onChange={(event) => setVendorDraft({ ...vendorDraft, delivery_fee: event.target.value })} /></label><button className="bt p" disabled={vendorSaving || !vendorDraft.name.trim() || !vendorDraft.pickup_address.trim()}>{vendorSaving ? "Saving…" : "Save vendor profile"}</button></form></section></main>;
+  if (!ownedVendor) return <main className="dl" style={{ padding: 24 }}><style>{CSS}</style><section className="cd" style={{ width: "min(560px,100%)", margin: "8vh auto" }}><div className="lb">Vendor setup</div><h1 className="serif" style={{ fontSize: 28, margin: "8px 0" }}>Create your vendor profile</h1><p className="mu" style={{ marginBottom: 18 }}>This profile is private until you switch your listing on.</p><form className="col" onSubmit={saveVendorProfile}><label className="lb">Business name<input className="in" required value={vendorDraft.name} onChange={(event) => setVendorDraft({ ...vendorDraft, name: event.target.value })} /></label><label className="lb">Pickup address<input className="in" required value={vendorDraft.pickup_address} onChange={(event) => setVendorDraft({ ...vendorDraft, pickup_address: event.target.value })} /></label><label className="lb">Delivery fee in NGN<input className="in" type="number" min="0" step="1" required value={vendorDraft.delivery_fee} onChange={(event) => setVendorDraft({ ...vendorDraft, delivery_fee: event.target.value })} /></label><button className="bt p" disabled={vendorSaving || !vendorDraft.name.trim() || !vendorDraft.pickup_address.trim()}>{vendorSaving ? "Saving…" : "Save vendor profile"}</button></form></section><ProfileEditor /></main>;
   const side = sides[tab];
   return <ThemeCtx.Provider value={th.cls}><div className={cn("dl", th.cls)}><style>{CSS + CSS2}</style>
-    <Shell letter="V" role="Vendor" nav={nav} tab={tab} setTab={setTab} mw={1040} convs={convs} notifs={NOTIFS} say={say} who={busy ? "Paused" : "Open · " + duty.length + " on duty"} onProfile={() => setTab("me")} side={side}
-      foot={<><div className="lb">Today</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{money(sales)}</div><div className="row xs mu" style={{ marginTop: 4 }}><span className={cn("ch", busy ? "o" : "g")}>{busy ? "Paused" : "Open"}</span>{cnt} orders</div></>}>
-      {tab === "q" && <DemoNotice>Order tickets, listing availability, and menu inventory are live. Staff shifts, sales totals, prep metrics, and handover records are preview data.</DemoNotice>}
-      {tab === "menu" && <DemoNotice>Menu changes are saved. Item categories and images are not yet managed here.</DemoNotice>}
-      {tab === "stats" && <DemoNotice>Settlement balances, payout accounts, history, and sales analytics are preview data. No payment or settlement service is connected.</DemoNotice>}
-      {tab === "team" && <DemoNotice>Team members, roles, permissions, and PINs are stored only in this browser and do not secure backend actions.</DemoNotice>}
-      {tab === "me" && <DemoNotice>Opening hours, prep time, account details, and compliance records are not yet loaded from or saved to your vendor profile.</DemoNotice>}
+    <Shell letter="V" role="Vendor" nav={nav} tab={tab} setTab={setTab} mw={1040} convs={convs} notifs={[]} say={say} who={busy ? "Paused" : "Open · " + duty.length + " on duty"} onProfile={() => setTab("me")} side={side}
+      foot={<><div className="lb">Today</div><div className="b" style={{ fontSize: 18, marginTop: 2 }}>{money(salesToday)}</div><div className="row xs mu" style={{ marginTop: 4 }}><span className={cn("ch", busy ? "o" : "g")}>{busy ? "Paused" : "Open"}</span>{todayOrders.length} orders</div></>}>
       {tab === "q" && <>
         <div className="cd row"><div className="fl"><div className="lb">{ownedVendor.name} · {ownedVendor.pickup_address}</div><h2 className="serif" style={{ fontSize: 24 }}>{busy ? "Paused: not taking orders" : "Open and taking orders"}</h2></div><Tgl big on={!busy} label="Taking orders" set={() => void toggleVendorAvailability()} /></div>
-        <div className="cd row"><Users size={18} className="ac" /><div className="fl"><div className="lb">On duty now · {duty.length}</div><div className="row" style={{ marginTop: 6, flexWrap: "wrap", gap: 6 }}>{duty.map((s) => <span key={s.id} className="ch" style={{ padding: "3px 10px 3px 4px" }}><Sa n={s.n} i={staff.indexOf(s)} s={22} />{s.n.split(" ")[0]} · {roleOf(s).n}</span>)}{!duty.length && <span className="ch r">Nobody on duty</span>}</div></div><button className="bt s o" onClick={() => setTab("team")}>Manage</button></div>
-        <div className="kp"><div><b>{money(sales)}</b><span className="xs mu">Today</span></div><div><b>{cnt}</b><span className="xs mu">Orders</span></div><div><b>11m</b><span className="xs mu">Avg prep</span></div></div>
+        <div className="kp"><div><b>{money(salesToday)}</b><span className="xs mu">Order total today</span></div><div><b>{todayOrders.length}</b><span className="xs mu">Orders today</span></div><div><b>{ownedVendor.prep_minutes} min</b><span className="xs mu">Prep time</span></div></div>
         <div className="board">{cols.map(([k, l, c]) => { const L = q.filter((x) => x.s === k); return <div key={k}><div className="colh"><i style={{ background: c }} /><span className="lb fl">{l}</span><span className="ch">{L.length}</span></div>{L.map(ticket)}{!L.length && <div className="tk mu" style={{ textAlign: "center", borderStyle: "dashed" }}>Nothing here</div>}</div>; })}</div>
         {hand.length > 0 && <div className="cd"><div className="lb">Handed over today · who completed it</div>{hand.map((h, i) => <div key={i} className="rk"><KeyRound size={16} className="ac" /><div className="fl"><div className="b">{h.id} · {money(h.total)}</div><div className="xs mu">{h.by} · {h.role} · {h.t}</div></div></div>)}</div>}</>}
-      {tab === "menu" && <MenuManager menu={menu} menuDraft={menuDraft} setMenuDraft={setMenuDraft} menuSaving={menuSaving} saveMenuItem={saveMenuItem} money={money} guard={guard} setMenu={setMenu} say={say} setAvailability={toggleMenuItem} Tgl={Tgl} />}
+      {tab === "menu" && <MenuManager menu={menu} menuDraft={menuDraft} setMenuDraft={setMenuDraft} menuSaving={menuSaving} saveMenuItem={saveMenuItem} money={money} setMenu={setMenu} say={say} setAvailability={toggleMenuItem} Tgl={Tgl} />}
       {tab === "stats" && <>
         <WalletCard label="Settlement wallet" amount={money(avail)} id={da ? da.bank + " ···· " + da.last : "No payout account"} delta="+9% vs last week" spark={[42, 55, 38, 61, 57, 72, 66].map((x) => x * 1000)} sparkLabel="Daily sales, last 7 days" actions={[{ l: "Withdraw", I: Banknote, p: 1, d: !avail, on: guard("payout", () => (da ? setWd(true) : (say("Add a payout account first"), setPayM(true)))) }, { l: "Accounts", I: Landmark, on: guard("payout", () => setPayM(true)) }]} foot={"To " + dTxt + " · settled " + (sch === "daily" ? "daily at 6 PM" : sch === "weekly" ? "every Monday" : "on request")} />
         <Timeline cfg={CFG} m={money} live={sales} liveN={cnt} title="Total sales">{(s) => {
@@ -656,23 +656,19 @@ export default function VendorApp() {
           <Tgl on={s.duty} label={"On duty " + s.n} set={() => { if (!s.ok) { say("Reinstate " + s.n.split(" ")[0] + " first"); return; } if (!allow("staff") && !s.duty) {} clock(s.id); say(s.n.split(" ")[0] + (s.duty ? " clocked out" : " is on duty")); }} />
           <button className="bt s" onClick={() => setMem(s.id)}>Manage</button></div></div>)}{!shownS.length && <p className="mu" style={{ padding: "18px 0", textAlign: "center" }}>Nobody matches.</p>}</div>}</>}
       {tab === "me" && <>
-        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>Mama Put Kitchen</h2><div className="xs mu">Wuse 2, Abuja · Kitchen</div></div><span className="ch g"><Check size={11} />Verified</span></div>
-        <div className="kp"><div><b>4.8</b><span className="xs mu">Rating</span></div><div><b>{cnt}</b><span className="xs mu">Orders today</span></div><div><b>97%</b><span className="xs mu">Accepted</span></div></div>
-        <div className="cd"><div className="lb">Opening hours · 8:00 AM – 10:00 PM</div>{WK.map((d, i) => <div key={d} className="rk"><span className="fl b">{d}</span><span className={cn("ch", hrs[i] ? "g" : "")}>{hrs[i] ? "Open" : "Closed"}</span><Tgl on={hrs[i]} label={d} set={() => { setHrs(hrs.map((h, j) => (j === i ? (h ? 0 : 1) : h))); say(d + (hrs[i] ? " closed" : " open")); }} /></div>)}</div>
-        <div className="cd row"><div className="fl"><div className="lb">Default prep time</div><div className="b" style={{ fontSize: 20 }}>{prep} min</div><div className="xs mu">Shown to customers and used for the kitchen timer</div></div><div className="stp"><button aria-label="Shorter prep time" onClick={() => setPrep(Math.max(5, prep - 5))}><Minus size={14} /></button><button className="p" aria-label="Longer prep time" onClick={() => setPrep(Math.min(60, prep + 5))}><Plus size={14} /></button></div></div>
-        <div className="cd"><div className="lb">Payout account</div><div className="row" style={{ marginTop: 10 }}><span className="em sm"><Landmark size={20} className="ac" /></span><div className="fl"><div className="b">{dTxt}</div><div className="xs mu">{da ? "Mama Put Kitchen Ltd · default" : "Add an account to withdraw"}</div></div><button className="bt s o" onClick={guard("payout", () => setPayM(true))}><Pencil size={13} />Manage</button></div></div>
+        <div className="cd hl row"><Av id="me" s={64} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>{profile?.display_name || "Vendor account"}</h2><div className="xs mu tr">{profile?.email || "Email unavailable"}</div>{ownedVendor && <div className="xs mu">{ownedVendor.name} · {ownedVendor.pickup_address}</div>}</div></div>
+        <ProfileEditor />
+        {ownedVendor && <form className="cd col" onSubmit={(event) => void saveVendorSettings(event)}><div className="lb">Business listing</div><label className="lb">Business name<input className="in" required maxLength={120} value={settingsDraft.name} onChange={(event) => setSettingsDraft({ ...settingsDraft, name: event.target.value })} /></label><label className="lb">Pickup address<input className="in" required maxLength={500} value={settingsDraft.pickup_address} onChange={(event) => setSettingsDraft({ ...settingsDraft, pickup_address: event.target.value })} /></label><label className="lb">Delivery fee in NGN<input className="in" type="number" min="0" step="1" required value={settingsDraft.delivery_fee} onChange={(event) => setSettingsDraft({ ...settingsDraft, delivery_fee: event.target.value })} /></label><label className="lb">Prep time in minutes<input className="in" type="number" min="1" max="240" step="1" required value={settingsDraft.prep_minutes} onChange={(event) => setSettingsDraft({ ...settingsDraft, prep_minutes: event.target.value })} /></label><button className="bt p" type="submit" disabled={settingsSaving}>{settingsSaving ? "Saving…" : "Save listing settings"}</button></form>}
+        {!ownedVendor && <p className="mu">Create a listing to manage its business settings.</p>}
         <button className="setrow" onClick={() => setSetOpenS(true)}><Settings size={20} className="ac" /><span className="fl">Settings</span><ChevronRight size={18} className="mu" /></button></>}
     </Shell>
     {pinFor && <PinSheet title={pinFor.k === "done" ? "Complete " + pinFor.o.id : "Withdraw"} need={pinFor.k === "done" ? "complete" : "payout"} staff={staff} roles={roles} say={say} onClose={() => setPinFor(null)} onOk={(s) => (pinFor.k === "done" ? done(pinFor.o, s) : (setWd(true), setPinFor(null)))} />}
     {rej && <Sheet title={"Reject " + rej.id} onClose={() => setRej(null)}><p className="mu">The customer is refunded and told why. Pick the honest reason.</p><div className="opt">{WHY.map((w) => <button key={w} className={why === w ? "on" : ""} onClick={() => setWhy(w)}>{why === w && <Check size={16} />}{w}</button>)}</div><button className="bt r w" onClick={reject}><Ban size={15} />Reject order</button></Sheet>}
-    {payM && <Payouts holder="Mama Put Kitchen Ltd" accounts={accts} setAccounts={setAccts} say={say} onClose={() => setPayM(false)} sched={{ label: "Settlement schedule", value: sch, options: [["daily", "", "Daily at 6 PM"], ["weekly", "", "Weekly · Monday"], ["manual", "", "Only when I withdraw"]], onPick: setSch, note: "Takes effect from the next settlement." }} />}
-    {wd && <Sheet title="Withdraw" onClose={() => setWd(false)}><div className="cd" style={{ padding: 12 }}><div className="lb">To</div><div className="b">{dTxt}</div></div><button className="bt p w xl" onClick={() => { setPays([["Withdrawal", "Just now", avail], ...pays]); setAvail(0); setWd(false); say("Withdrawal sent · arrives in minutes"); }}>Send {money(avail)}</button></Sheet>}
     {setOpenS && <Full title="Settings" onClose={() => setSetOpenS(false)}>
       <div className="cd"><div className="lb" style={{ marginBottom: 10 }}>Appearance</div><ThemeSwitch th={th} /><p className="xs mu" style={{ marginTop: 8 }}>Light is bright and crisp for a busy counter. Dark is easy on the eyes in the evening. Auto follows the device.</p></div>
-      <button className="setrow" onClick={() => setTeam(true)}><Users size={20} className="ac" /><div className="fl"><div>Team and roles</div><div className="xs mu" style={{ fontWeight: 500 }}>{duty.length} on duty · {roles.length} roles · order PINs</div></div><ChevronRight size={18} className="mu" /></button>
-      <div className="cd"><div className="lb">Kitchen</div>{[["auto", "Auto-accept orders", "Skip the New column when you're quiet"], ["snd", "Loud new-order alert", "Repeats until you open the ticket"], ["print", "Print tickets", "Send each accepted order to the printer"]].map(([k, t, d]) => <Rw key={k} t={t} d={d}><Tgl on={prefs[k]} label={t} set={() => tog(k, t)} /></Rw>)}</div>
-      <div className="cd"><div className="lb">Help and support</div><div style={{ marginTop: 10 }}><ContactBar order="Support desk" peers={["sup"]} say={say} /></div></div>
-      <SignOut say={say} who="Mama Put Kitchen" /></Full>}
+      <div className="cd"><div className="lb">Team and roles</div><p className="xs mu" style={{ marginTop: 8 }}>Staff accounts, permissions, and order PINs are not yet connected to a secure backend.</p></div>
+      <div className="cd"><div className="lb">Support</div><p className="xs mu" style={{ marginTop: 8 }}>General support messaging is not connected yet. Order conversations are available from live tickets.</p></div>
+      <SignOut say={say} who={profile?.display_name || profile?.email || "Vendor"} /></Full>}
     {M && <Full dlg title="Team member" onClose={() => setMem(null)}>
       <div className="cd hl row"><Sa n={M.n} i={staff.indexOf(M)} s={56} on={M.duty} /><div className="fl"><h2 className="serif" style={{ fontSize: 22 }}>{M.n}</h2><div className="xs mu">{roleOf(M).n} · {M.ok ? (M.duty ? "On duty since " + M.since : "Off duty") : "Suspended"}</div></div></div>
       <div className="kp"><div><b>{M.done}</b><span className="xs mu">Orders today</span></div><div><b>{roleOf(M).perms.length}</b><span className="xs mu">Permissions</span></div><div><b>{M.last === "Active now" ? "Now" : "Away"}</b><span className="xs mu">{M.last}</span></div></div>

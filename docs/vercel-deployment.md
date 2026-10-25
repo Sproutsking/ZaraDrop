@@ -4,7 +4,7 @@ Deploy these as **four separate Vercel projects**. Each gets its own URL and dep
 
 ## Before Deploying
 
-1. Apply all five SQL migrations to the Supabase project, in filename order, including the terminal-order, Paystack, and Mapbox location migrations.
+1. Apply all eight SQL migrations to the Supabase project, in filename order, including profile repair, profile photos, saved customer addresses, terminal-order, Paystack, and Mapbox location migrations.
 2. In Supabase, copy the project URL and the project's publishable key (or legacy anon key). Never use a personal access token or service-role key in a browser app.
 3. Make sure the deployment branch contains the latest code and `package-lock.json`.
 4. Configure Google, Facebook, and X under Supabase Authentication providers. Register Supabase's generated `/auth/v1/callback` URL with each provider and add each deployed app origin to Supabase's redirect URL allowlist. TikTok needs compatible custom OIDC support. Instagram needs an OIDC identity broker or a different auth gateway because its standard login is OAuth 2.0, not OIDC.

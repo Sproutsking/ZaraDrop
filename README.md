@@ -56,8 +56,13 @@ Apply all SQL migrations in order in the Supabase SQL Editor:
 3. `supabase/migrations/202610230001_guard_terminal_order_assignment.sql`
 4. `supabase/migrations/202610230002_paystack_order_payments.sql`
 5. `supabase/migrations/202610230003_mapbox_rider_tracking.sql`
+6. `supabase/migrations/202610240001_ensure_current_profile.sql`
+7. `supabase/migrations/202610240002_profile_avatars.sql`
+8. `supabase/migrations/202610250001_customer_addresses.sql`
 
-Together they create the shared profile, vendor, menu, order and messaging tables; grant only the required client privileges; enable row-level security; add order workflow functions, realtime publication, and the complete rider order queue; and prevent assigning terminal orders.
+Together they create and repair shared profiles, customer addresses, vendors, menus, orders and messages; grant only required client privileges; enable row-level security; add order workflow functions, realtime publication, the complete rider order queue, user-owned profile photos and saved customer addresses.
+
+Profile photos use the public `profile-avatars` Storage bucket. Each signed-in user can upload or replace only the object in their own user-ID folder. Do not store identity documents or other private files in this public bucket.
 
 ### Paystack setup
 
@@ -71,7 +76,7 @@ New sign-ups receive the `customer` role. Rider, vendor and ops roles must be gr
 
 The customer marketplace reads active vendors and available menu items from Supabase. Cash-on-delivery orders and Paystack orders are created through a server-side RPC; online payment confirmation is handled by the Paystack Edge Function and signed webhook. Vendor order tickets and menu/listing availability are persisted; rider jobs are claimed atomically, status changes are persisted, and location sharing is available during active delivery after rider consent and Mapbox setup. Operations monitors the shared orders and assigns eligible rider accounts. Order and location changes refresh through Supabase Realtime. Vendor accounts must create a vendor profile and menu before appearing in the marketplace. Rider, vendor, and ops roles must be assigned by an administrator.
 
-Wallet funding, payouts, refunds, rider/vendor/customer administration, staff/team permissions, support tickets, and most analytics are still not backed by live domain services; those screens are labeled as preview data. General chat/support is not the same as the persisted order conversation. Do not treat demo balances, operational metrics, or locally edited roles as real financial or security records. Before launch, apply and verify all five migrations, deploy/configure the Paystack Edge Function and webhook, configure OAuth and Mapbox, establish a trusted role-provisioning process, and test the whole workflow with provider test credentials. Browser apps must never use a service-role key, Paystack secret, Mapbox secret token, or OAuth client secret.
+Wallet funding, payouts, refunds, rider/vendor/customer administration, staff/team permissions, support tickets, and most analytics are still not backed by live domain services; those screens are labeled as preview data. General chat/support is not the same as the persisted order conversation. Do not treat demo balances, operational metrics, or locally edited roles as real financial or security records. Before launch, apply and verify all eight migrations, deploy/configure the Paystack Edge Function and webhook, configure OAuth and Mapbox, establish a trusted role-provisioning process, and test the whole workflow with provider test credentials. Browser apps must never use a service-role key, Paystack secret, Mapbox secret token, or OAuth client secret.
 
 ## App ports
 
